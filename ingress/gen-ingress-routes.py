@@ -70,15 +70,13 @@ def role_expr(roles):
 
 def gen(exposures):
     atoms = {}   # (path, 메서드 튜플) -> [(service, route)]
-    denied = []
     for e in exposures:
         for r in e["routes"]:
             kind = r["auth"]["kind"]
             if kind == "machine-token":
                 continue   # 내보내지 않는다: 이 경로는 아래 바닥 규칙(404)이거나 다른 선언이 정한다
             if kind == "denied":
-                denied.append((e["service"], r))
-                continue
+                continue   # 거부 선언은 경로를 만들지 않는다: 선언이 없는 경로는 아래 바닥 규칙(404)이다. 같은 경로를 다른 영역이 열었으면 그 선언이 서비스한다(HTTP.md I1)
             for p in r["paths"]:
                 atoms.setdefault((p, tuple(sorted(r.get("methods") or []))), []).append((e["service"], r))
     out = ["# 생성됨(platform ingress/gen-ingress-routes.py): 각 영역 Exposure 선언에서 만든다. 직접 고치지 않는다.", ""]
@@ -89,6 +87,8 @@ def gen(exposures):
         if path == "/*" and not floor_done:   # 선언에 없는 /v1/* 는 404(루트 정적 화면 /* 가 삼키지 않게)
             floor_done = True
             out += block("v1floor", ["path /v1/*"], respond(404, NOTFOUND)) + [""]
+        if len({o[0] for o in opts}) > 1:   # 같은 공개 경로·메서드를 두 영역이 열면 주인이 둘이다: 시작하지 않는다(종료 65)
+            raise SystemExit("같은 공개 경로를 두 영역이 연다: %s %s %s" % (path, list(methods), sorted({o[0] for o in opts})))
         n += 1
         m = ["path " + path] + (["method " + " ".join(methods)] if methods else [])
         kinds = {o[1]["auth"]["kind"] for o in opts}
@@ -120,13 +120,6 @@ def gen(exposures):
         else:
             raise SystemExit("한 경로·메서드에 섞인 인증 종류는 처리하지 못한다: %s %s %s" % (path, methods, sorted(kinds)))
         out += block("a%d" % n, m, body) + [""]
-    # 거부(denied): 밖에서 닿을 수 없다. 다른 영역이 같은 공개 경로를 허용으로 선언했으면 그 선언이 이긴다(예: question-authoring 은 /v1/question-sets 를 거부하고 survey-service 는 기기에게 연다: 같은 공개 경로를 두 영역이 선언한 충돌은 계약에 알림)
-    dpaths = sorted({p for _, r in denied for p in r["paths"]})
-    # 메서드를 가진 denied 경로는 해당 메서드만 거절하고 나머지는 아래 규칙으로 간다
-    for (svc, r) in denied:
-        n += 1
-        m = ["path " + " ".join(r["paths"])] + (["method " + " ".join(r["methods"])] if r.get("methods") else [])
-        out += block("x%d" % n, m, respond(404, NOTFOUND)) + [""]
     out += ["# 바닥: 선언에 없는 경로는 404 BoundaryError(R3.5)"] + block("floor", ["path /*"], respond(404, NOTFOUND))
     # route 안에 써서 Caddy 가 handle 을 다시 정렬하지 않게 한다(순서가 곧 우선순위). Caddyfile 의 `order route last` 와 짝
     return "route {\n" + "\n".join(("\t" + l) if l else l for l in out) + "\n}\n"
