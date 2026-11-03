@@ -29,7 +29,7 @@ ACTUAL="v$("$PYTHON" -c 'import importlib.metadata as m; print(m.version("bounda
 [ "$ACTUAL" = "$BOUNDARY_TAG" ] || die "요청 versions.boundary($BOUNDARY_TAG)와 이 영역 환경의 계약 패키지($ACTUAL)가 다르다. setup-env.sh 를 다시 실행한다"
 echo "build-image: $IMAGE_TAG (revision $REVISION, boundary $ACTUAL)" >&2
 CTXARGS=()
-if [ "$CTX" = area-gateway ]; then   # 설정 생성기가 계약 스키마로 선언을 검증한다: 계약 패키지는 요청의 소스 트리에서만 설치한다(빌드 중 이웃 리포·SSH 없음)
+if [ "$CTX" = area-gateway ] || [ "$CTX" = ingress ]; then   # 설정 생성기가 계약 스키마로 선언을 검증한다: 계약 패키지는 요청의 소스 트리에서만 설치한다(빌드 중 이웃 리포·SSH 없음)
   [ -d "$BOUNDARY_SRC" ] || die "이 이미지는 요청의 dependency_sources.boundary(계약 소스 트리)가 필요하다"
   BA="v$(sed -n 's/^version = "\(.*\)"$/\1/p' "$BOUNDARY_SRC/pyproject.toml" | head -1)"; [ "$BA" = "$ACTUAL" ] || die "dependency_sources.boundary 의 실제 버전($BA)이 환경의 계약 패키지($ACTUAL)와 다르다"
   CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC")

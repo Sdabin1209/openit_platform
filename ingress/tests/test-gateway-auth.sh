@@ -7,12 +7,17 @@ set -uo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
 T=$(mktemp -d); export SECRETS_DIR=$T
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak oauth2-proxy || { echo "시험 PKI 를 만들지 못했다"; exit 1; }   # 게이트웨이는 상류를 https 로 부르므로 가짜 상류 앞에 TLS 를 붙인다(ADR 0060)
+printf '{"source_dir":"%s","revision":"abcdef1","versions":{"boundary":"v%s"},"variant":"public-ingress","dependency_sources":{"boundary":"%s"},"image_tag":"platform-ingress:test"}' "$ROOT" "$("$ROOT/.venv/bin/python" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')" "$ROOT/../boundary-contracts" > "$T/build-req.json"
+bash "$ROOT/scripts/build-image.sh" "$T/build-req.json" >/dev/null 2>"$T/build.err" || { tail -3 "$T/build.err"; echo "공개 입구 이미지를 만들지 못했다"; exit 1; }
 GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
 NET=gwauth-net-$$; CN=gwauth-csrf-$$; CF=gwauth-fakeauth-$$; CU=gwauth-upstream-$$
 cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$T"; }; trap cleanup EXIT
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
-val() { docker run --rm $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$ROOT/ingress/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$ROOT/ingress/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$ROOT/ingress/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" "$GW" caddy validate --config /etc/caddy/Caddyfile; }
+ING=platform-ingress:test
+EXP="$ROOT/ingress/tests/exposures"
+ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 --tmpfs /data:uid=10001,gid=10001 --tmpfs /config:uid=10001,gid=10001 -v "$EXP:/etc/openit/exposures:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro"; }
+val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES --entrypoint sh "$ING" -c 'mkdir -p /tmp/openit && /opt/gw/bin/python /usr/local/bin/gen-ingress-routes.py /etc/openit/exposures > /tmp/openit/routes.caddy && caddy validate --config /etc/caddy/Caddyfile'; }
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 뗀다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; [ "$(GATEWAY_HOSTS="kiosk.hospital.local:8443, 10.0.0.5:443" gateway_host_names)" = "\"kiosk.hospital.local\", \"10.0.0.5\"" ]' _ "$ROOT"
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; ! ( GATEWAY_HOSTS="*.x:8443" gateway_host_names ) >/dev/null 2>&1 && ! ( GATEWAY_HOSTS="a\"b:8443" gateway_host_names ) >/dev/null 2>&1' _ "$ROOT"
@@ -32,16 +37,16 @@ bash "$ROOT/ingress/scripts/kiosk-add-device.sh" add auth-1 >/dev/null 2>&1   # 
 # 가짜 oauth2-proxy 와 가짜 상류를 같은 네트워크에 둔다. 상류 이름은 Caddyfile 이 부르는 서비스 이름이다
 docker network create $NET >/dev/null
 docker run -d --name $CF --network $NET --network-alias oauth2-proxy -e FAKE_ACCOUNTS=/accounts -v "$ACCOUNTS:/accounts:ro" -v "$ROOT/ingress/tests/gateway-oidc/fake-oauth2-proxy.py:/f.py:ro" "$UTIL" python /f.py >/dev/null
-docker run -d --name $CU --network $NET $(for h in survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak; do echo --network-alias $h; done) -v "$ROOT/ingress/tests/gateway-oidc/echo-upstream.py:/e.py:ro" "$UTIL" python /e.py >/dev/null
+docker run -d --name $CU --network $NET $(for h in survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry dataset-store keycloak; do echo --network-alias $h; done) -v "$ROOT/ingress/tests/gateway-oidc/echo-upstream.py:/e.py:ro" "$UTIL" python /e.py >/dev/null
 printf '{\n\tadmin off\n\tskip_install_trust\n\tauto_https off\n}\nhttps://:443 {\n\ttls /pki/leaf.crt /pki/leaf.key\n\treverse_proxy 127.0.0.1:{$UP}\n}\n' > "$PKI/front.caddy"
 for pair in "$CU:8080" "$CF:4180"; do docker run -d --name "${pair%%:*}-tls" --network "container:${pair%%:*}" -e UP="${pair##*:}" -v "$PKI/front.caddy:/etc/caddy/Caddyfile:ro" -v "$PKI:/pki:ro" "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null; done
 # 교차 사이트 요청 방어(점검 M2)의 실제 동작: gateway 를 띄우고 헤더 조합별 응답을 본다. 인증이 없으면 401 이므로 "403 + 교차 출처 문구"는 이 규칙만의 응답이다. (Docker·Caddy 필요)
-docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$ROOT/ingress/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$ROOT/ingress/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$ROOT/ingress/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$GW" >/dev/null
+docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES -p 127.0.0.1::8443 "$ING" >/dev/null
 CP=""; for i in $(seq 1 30); do CP=$(docker port $CN 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$CP" ] && curl -sk -o /dev/null -m 2 "https://127.0.0.1:$CP/healthz" && break; sleep 0.5; done   # port-wait: 게이트웨이 포트가 열릴 때까지만 기다린다
 cs() { curl -sk -m 5 -o "$T/cs.out" -w '%{http_code}' -X "$1" "${@:3}" "https://127.0.0.1:$CP$2"; }
 csrf_case() { # csrf_case <설명> <기대 코드> <교차 출처 문구 포함 여부> <메서드> <경로> [curl 인자...]
   local name=$1 want=$2 body=$3; shift 3; local code; code=$(cs "$@")
-  local has=no; grep -q "교차 출처" "$T/cs.out" && has=yes
+  local has=no; grep -q "cross-origin" "$T/cs.out" && has=yes
   if [ "$code" = "$want" ] && [ "$has" = "$body" ]; then echo "  PASS $name"; else echo "  FAIL $name (코드 $code, 기대 $want)"; FAILS=$((FAILS+1)); fi; }
 csrf_case "Sec-Fetch-Site: cross-site 의 POST 는 403(교차 출처)" 403 yes POST /v1/activate -H "Sec-Fetch-Site: cross-site"
 csrf_case "Sec-Fetch-Site: same-site 의 POST 도 403" 403 yes POST /v1/activate -H "Sec-Fetch-Site: same-site"
@@ -67,7 +72,7 @@ csrf_case "Origin 대소문자·접두 변형(https://127.0.0.1.evil.example)은
 # 경로 우회·청크 본문 회귀: 다른 Origin 의 상태 변경 요청은 경로 표기를 어떻게 바꿔도 403 이다(CSRF 규칙이 경로 매칭보다 먼저다). --path-as-is 로 요청 바이트 그대로
 csrf_path() { # csrf_path <설명> <경로> [curl 인자...]
   local name=$1 path=$2; shift 2; local code; code=$(curl -sk -m 5 --path-as-is -X POST -o "$T/cp.out" -w '%{http_code}' -H "Origin: https://evil.example" "$@" "https://127.0.0.1:$CP$path")
-  if [ "$code" = 403 ] && grep -q "교차 출처" "$T/cp.out"; then echo "  PASS CSRF 경로 우회: $name -> 403"; else echo "  FAIL CSRF 경로 우회: $name -> $code (다른 Origin 이 403 이 아니다)"; FAILS=$((FAILS+1)); fi; }
+  if [ "$code" = 403 ] && grep -q "cross-origin" "$T/cp.out"; then echo "  PASS CSRF 경로 우회: $name -> 403"; else echo "  FAIL CSRF 경로 우회: $name -> $code (다른 Origin 이 403 이 아니다)"; FAILS=$((FAILS+1)); fi; }
 csrf_path "//v1/activate" //v1/activate
 csrf_path "/v1//activate" /v1//activate
 csrf_path "/v1%2factivate" /v1%2factivate
@@ -79,7 +84,7 @@ csrf_path "청크 본문 + 경로 //" //v1/sessions -H "Transfer-Encoding: chunk
 byp() { # byp <설명> <허용 코드들> <경로> [curl 인자...]
   local name=$1 allow=$2 path=$3; shift 3; local code; code=$(curl -sk -m 5 --path-as-is -o "$T/by.out" -w '%{http_code}' "$@" "https://127.0.0.1:$CP$path")
   case " $allow " in *" $code "*) echo "  PASS 우회 시도: $name -> $code";; *) echo "  FAIL 우회 시도: $name -> $code (허용 $allow; 상류로 넘어갔거나 인증 없이 통과했다 = 우회)"; FAILS=$((FAILS+1));; esac; }
-byp "/staff/ 정상 경로는 로그인으로 보낸다(302)" "302" /staff/
+byp "/staff/ 정상 경로는 로그인으로 보낸다(302, 브라우저 Accept)" "302" /staff/ -H "Accept: text/html"
 byp "대소문자 /Staff/" "302 401 403 404" /Staff/
 byp "/STAFF/" "302 401 403 404" /STAFF/
 byp "//staff//" "302 401 403 404" //staff//
@@ -123,7 +128,8 @@ chk401() { # chk401 <설명> <Bearer> <who> <메서드> <경로>: 401 + WWW-Auth
   local name=$1 code h; shift 2; code=$(call "$@"); h=$(wa); AN=$((AN+1))
   if [ "$code" = 401 ] && grep -qE '^[Ww][Ww][Ww]-[Aa]uthenticate: Bearer\b' <<<"$h"; then echo "  PASS $name -> 401 + $h"; else echo "  FAIL $name -> $code, WWW-Authenticate='$h' (기대 401 + Bearer)"; FAILS=$((FAILS+1)); fi; }
 chk302() { # chk302 <설명> <who> <메서드> <경로>: 화면 경로는 로그인으로 보낸다
-  local name=$1 code l; shift; code=$(call "$@"); l=$(loc); AN=$((AN+1))
+  local name=$1 code l; shift; code=$(call "$@" -H "Accept: text/html"); l=$(loc);   # 화면 이동은 Accept 에 text/html 이 있는 요청만(R3.23)
+   AN=$((AN+1))
   if [ "$code" = 302 ] && grep -qi '^location: /oauth2/start?rd=' <<<"$l"; then echo "  PASS $name -> 302 $l"; else echo "  FAIL $name -> $code, $l (기대 302 /oauth2/start)"; FAILS=$((FAILS+1)); fi; }
 chk403() { # chk403 <설명> <who> <메서드> <경로>
   local name=$1 code; shift; code=$(call "$@"); AN=$((AN+1))
@@ -180,7 +186,7 @@ chkpass "clinician 계정 -> 결과 조회 GET /v1/results" clinician-e2e GET /v
 chkpass "어느 역할이든 정적 승인 화면 /admin/ 은 인증과 역할만 본다(여기서는 staff 가 통과: 화면은 모든 역할)" staff-e2e GET /admin/
 # 가입 승인 대기: 인증은 됐으나 역할(그룹)이 없다 -> 모든 사람 경로에서 403 ACCOUNT_PENDING_APPROVAL
 chk403 "승인 대기 계정 GET /v1/staff/alerts" pending-e2e GET /v1/staff/alerts
-chk403 "승인 대기 계정 GET /admin/" pending-e2e GET /admin/
+chkpass "승인 대기 계정 GET /admin/ 은 열린다(Exposure.auth.kind=authenticated: 역할 없이도 연다, 가입 승인 대기 안내를 보이려고, R3.24)" pending-e2e GET /admin/
 AN=$((AN+1)); call pending-e2e GET /v1/submissions >/dev/null; if grep -q '"reason":"ACCOUNT_PENDING_APPROVAL"' "$T/ab.out" && grep -q '"code":"PERMISSION_DENIED"' "$T/ab.out"; then echo "  PASS 승인 대기 계정의 403 본문은 PERMISSION_DENIED / ACCOUNT_PENDING_APPROVAL"; else echo "  FAIL 승인 대기 본문: $(cat "$T/ab.out")"; FAILS=$((FAILS+1)); fi
 # 신원 머리글(계약 CONVENTIONS 6절): 인증 뒤 X-Openit-User 와 X-Openit-Roles(쉼표 목록)를 붙이고, 클라이언트가 보낸 같은 이름의 머리글은 지운다
 chkhdr "staff 계정: X-Openit-User=staff-e2e, X-Openit-Roles=staff" staff-e2e staff staff-e2e GET /v1/staff/alerts
@@ -191,7 +197,8 @@ chk401 "위조한 X-Auth-Request-* 만으로는 인증되지 않는다" Bearer -
 chkhdr "화면 경로(/admin/)에는 신원 머리글을 붙이지 않는다(정적 화면)" "" "" staff-e2e GET /admin/
 # 게이트웨이 자신의 /healthz·/readyz: 상태 코드와 본문 HealthStatus(status), Content-Type json (R2.3·R5.1)
 for pth in /healthz /readyz; do AN=$((AN+1)); hb=$(curl -sk -m 10 -D "$T/hh" "https://127.0.0.1:$CP$pth"); hc=$(sed -n '1s/[^ ]* \([0-9]*\).*/\1/p' "$T/hh")
-  if [ "$hc" = 200 ] && echo "$hb" | grep -Eq '^\{"status": ?"ok"\}$' && grep -qi '^content-type: application/json' "$T/hh"; then echo "  PASS $pth 는 200 + {\"status\":\"ok\"} + application/json"; else echo "  FAIL $pth: $hc '$hb'"; FAILS=$((FAILS+1)); fi; done
+  want=ok; [ "$pth" = /readyz ] && want=ready   # HealthStatus(status): 살아 있음 ok, 준비됨 ready (R5.1)
+  if [ "$hc" = 200 ] && echo "$hb" | grep -Eq "^\{\"status\": ?\"$want\"\}$" && grep -qi '^content-type: application/json' "$T/hh"; then echo "  PASS $pth 는 200 + {\"status\":\"$want\"} + application/json"; else echo "  FAIL $pth: $hc '$hb'"; FAILS=$((FAILS+1)); fi; done
 # 본문 상한(8MiB)을 Content-Length 로 넘는 요청은 상류로 보내기 전에 413 이다(상류가 TLS 사이드카일 때 본문 읽기 오류가 503 으로 올라왔다, 4차 E2E 5a)
 AN=$((AN+1)); big=$(head -c 9437184 /dev/zero | curl -sk -o /dev/null -m 30 -w '%{http_code}' -X POST --data-binary @- -H 'Content-Type: text/plain' "https://127.0.0.1:$CP/v1/materials?question_set_id=x" 2>/dev/null || true)
 if [ "$big" = 413 ]; then echo "  PASS 8MiB 초과 본문은 413"; else echo "  FAIL 8MiB 초과 본문이 $big (기대 413)"; FAILS=$((FAILS+1)); fi
@@ -202,7 +209,7 @@ DEVTOK=$(cat "$T/tokens/kiosk-device-auth-1")
 chk401 "기기 토큰 없음 POST /v1/sessions" Bearer - POST /v1/sessions
 chk401 "틀린 기기 토큰 POST /v1/sessions" Bearer bearer:0000000000000000000000000000000000000000000000000000000000000000 POST /v1/sessions
 chk401 "사람 세션 쿠키는 기기 경로에서 자격이 아니다(Bearer 를 안내)" Bearer staff-e2e POST /v1/sessions
-chk401 "기기 토큰 없음 GET /v1/sessions/s1" Bearer - GET /v1/sessions/s1
+chk401 "기기 토큰 없음 GET /v1/sessions/s1/state" Bearer - GET /v1/sessions/s1/state
 chkpass "유효한 기기 토큰 POST /v1/sessions" bearer:"$DEVTOK" POST /v1/sessions
 chk401 "기기 토큰 없음 GET /v1/question-sets (I10 문진표 목록은 세션과 같은 기기 인증)" Bearer - GET /v1/question-sets
 chk401 "틀린 기기 토큰 GET /v1/question-sets" Bearer bearer:0000000000000000000000000000000000000000000000000000000000000000 GET /v1/question-sets
@@ -210,11 +217,12 @@ chkpass "유효한 기기 토큰 GET /v1/question-sets" bearer:"$DEVTOK" GET /v1
 chkpass "유효한 기기 토큰 GET /v1/question-sets?question_set_id=x (쿼리가 막히지 않는다)" bearer:"$DEVTOK" GET "/v1/question-sets?question_set_id=x"
 # 기계 경로(추론 서버의 릴리스 읽기, D72): 기계 토큰만 연다. 사람 OIDC 세션은 이 경로의 자격이 아니다(D7d: 예전 `not header Authorization Basic*` 조건을 세션 쿠키 기준으로 바꿨다)
 INFTOK=$(tr -d '\r\n' < "$T/tokens/gateway-inference-token")
-chk401 "기계 경로 /v1/releases/r1/bundle: 쿠키도 토큰도 없으면 401 + Bearer" Bearer - GET /v1/releases/r1/bundle
-chk401 "기계 경로: 틀린 기계 토큰은 401 + Bearer" Bearer bearer:0000 GET /v1/releases/r1/bundle
-chk401 "기계 경로 /v1/active-pointer: 자격이 없으면 401 + Bearer(운영자 블록)" Bearer - GET /v1/active-pointer
-chkup "기계 경로: 맞는 기계 토큰이면 상류에는 model-serving 읽기 토큰으로 바꿔 붙는다" gate-read-model-serving bearer:"$INFTOK" GET /v1/releases/r1/bundle
-chkup "기계 경로 /v1/active-pointer: 기계 토큰이면 같은 읽기 토큰" gate-read-model-serving bearer:"$INFTOK" GET /v1/active-pointer
+chk404() { # chk404 <설명> <who> <메서드> <경로>: 내보내지 않는 경로는 404 BoundaryError(NOT_FOUND)
+  local name=$1 code; shift; code=$(call "$@"); AN=$((AN+1))
+  if [ "$code" = 404 ] && grep -q '"code":"NOT_FOUND"' "$T/ab.out"; then echo "  PASS $name -> 404 NOT_FOUND"; else echo "  FAIL $name -> $code '$(head -c 80 "$T/ab.out")' (기대 404 NOT_FOUND)"; FAILS=$((FAILS+1)); fi; }
+# 기계 경로(machine-token, 추론 서버의 릴리스 읽기): 3.4.7 부터 공개 입구가 내보내지 않는다. 받는 서비스가 토큰을 대조하고 compose 밖 기계 호출자는 hosts 표로 영역 게이트웨이에 바로 간다. 토큰이 맞아도 틀려도 같은 404
+chk404 "기계 경로 /v1/releases/r1/bundle: 공개 입구가 내보내지 않는다(토큰 없음)" - GET /v1/releases/r1/bundle
+chk404 "기계 경로: 맞는 기계 토큰이어도 공개 입구는 대조하지 않는다 -> 404" bearer:"$INFTOK" GET /v1/releases/r1/bundle
 AN=$((AN+2))
 c=$(call "trainer-e2e; _openit_session=x" GET /v1/releases/r1/bundle)   # 쿠키 머리글 값에 진짜 세션 쿠키 이름도 싣는다(가짜 인증은 fakeauth 만 읽는다)
 [ "$c" = 404 ] && echo "  PASS 사람 OIDC 세션(승인자)이 기계 경로 /v1/releases/* 로 오면 404(401 도 통과도 아니다)" || { echo "  FAIL 사람 세션의 기계 경로 -> $c (기대 404)"; FAILS=$((FAILS+1)); }
