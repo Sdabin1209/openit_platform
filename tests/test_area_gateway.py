@@ -63,6 +63,11 @@ def curl(net, *args):
     return sh("docker", "run", "--rm", "--network", net, CURL, "-sk", "--max-time", "8", *args, check=False).stdout
 
 
+def inns(stack, name="gw"):
+    """영역 게이트웨이와 같은 네트워크 공간(영역 안 컴포넌트의 자리): 출구는 이 공간의 loopback 이다(R1.8)."""
+    return f"container:{name}-{stack['tag']}"
+
+
 def test_ingress_tls_terminates_and_forwards(stack):
     assert curl(stack["net"], "https://gw/") == "from-app"
 
@@ -73,13 +78,13 @@ def test_ingress_cert_is_the_service_name(stack):
 
 
 def test_egress_allowed_peer_gets_a_tunnel_with_tls_end_to_end(stack):
-    assert curl(stack["net"], "-x", "http://gw:3128", "https://svc-x/") == "from-svc-x"
+    assert curl(inns(stack), "-x", "http://127.0.0.1:3128", "https://svc-x/") == "from-svc-x"
 
 
 def test_egress_undeclared_peer_is_403_boundary_error(stack):
     # curl 은 CONNECT 거절을 오류로 낸다: 거절 응답(상태 줄·본문)을 소켓으로 직접 받는다
-    raw = sh("docker", "run", "--rm", "--network", stack["net"], "python:3.12-slim", "python", "-c",
-             "import socket;s=socket.create_connection(('gw',3128));s.sendall(b'CONNECT svc-y:443 HTTP/1.1\\r\\nHost: svc-y:443\\r\\n\\r\\n');s.settimeout(3);d=b''.join(iter(lambda: s.recv(4096), b''));print(d.decode())").stdout
+    raw = sh("docker", "run", "--rm", "--network", inns(stack), "python:3.12-slim", "python", "-c",
+             "import socket;s=socket.create_connection(('127.0.0.1',3128));s.sendall(b'CONNECT svc-y:443 HTTP/1.1\\r\\nHost: svc-y:443\\r\\n\\r\\n');s.settimeout(3);d=b''.join(iter(lambda: s.recv(4096), b''));print(d.decode())").stdout
     head, _, b = raw.replace("\r\n", "\n").partition("\n\n")   # subprocess 텍스트 모드가 CRLF 를 LF 로 바꾼다
     assert head.startswith("HTTP/1.1 403")
     err = json.loads(b)
@@ -94,5 +99,25 @@ def test_mutation_removing_the_peer_from_egress_denies_it(stack):
     tag = stack["tag"]
     stack["run"](f"gw2-{tag}", "--network-alias", "gw2", "--read-only", "--tmpfs", "/tmp", "-v", f"{d}/envoy2.yaml:/etc/envoy/envoy.yaml:ro", "-v", f"{d}/sds.yaml:/etc/envoy/sds.yaml:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
     time.sleep(3)
-    out = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "--max-time", "8", "-x", "http://gw2:3128", "https://svc-x/", "-v", check=False).stderr
+    out = sh("docker", "run", "--rm", "--network", inns(stack, "gw2"), CURL, "-sk", "--max-time", "8", "-x", "http://127.0.0.1:3128", "https://svc-x/", "-v", check=False).stderr
     assert "403" in out
+
+
+def test_egress_listener_is_loopback_only_not_reachable_from_other_containers(stack):
+    # 출구는 loopback 이다: 같은 네트워크 공간 밖의 다른 컨테이너는 3128 에 닿지 못한다(계약 R1.8, 클라이언트 require_egress_proxy)
+    out = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "--max-time", "4", "-x", "http://gw:3128", "https://svc-x/", check=False)
+    assert out.returncode != 0 and out.stdout == ""
+
+
+def test_route_upstreams_split_by_longest_path_prefix(stack):
+    # 영역 안 컴포넌트가 여럿일 때: 경로 접두사별 상류(가장 긴 접두사 우선), 나머지는 기본 상류. Exposure 스키마에는 경로별 상류 필드가 없어 배치가 준다
+    d, tag = stack["d"], stack["tag"]
+    util = "python:3.12-slim"
+    stack["run"](f"app2-{tag}", "--network-alias", "app2", util, "python", "-c",
+                 "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(('app2:' + s.path).encode())\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()")
+    r = sh(str(ROOT / ".venv/bin/python"), str(GEN), "--exposure", str(d / "exposure.json"), "--upstream", "app:8080", "--route-upstream", "/v1/other=app2:8080", "--sds-out", str(d / "sds.yaml"))
+    (d / "envoy3.yaml").write_text(r.stdout)
+    stack["run"](f"gw3-{tag}", "--network-alias", "gw3", "--read-only", "--tmpfs", "/tmp", "-v", f"{d}/envoy3.yaml:/etc/envoy/envoy.yaml:ro", "-v", f"{d}/sds.yaml:/etc/envoy/sds.yaml:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
+    time.sleep(3)
+    assert curl(stack["net"], "https://gw3/v1/other/x") == "app2:/v1/other/x"
+    assert curl(stack["net"], "https://gw3/v1/sessions") == "from-app"

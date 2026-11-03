@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """영역 게이트웨이 설정 생성기(platform 영역, ADR 0001). 영역의 Exposure 선언(라벨 io.openit.exposure 의 내용)과 배치 값에서 Envoy 설정을 만든다.
 들어오는 쪽: 서비스 이름 인증서로 TLS 를 끝내고 영역 안 컴포넌트(upstream)로 넘긴다(RUNTIME R1.1, CONVENTIONS 13절). 인증서·키 파일이 바뀌면 Envoy 가 SDS 파일 감시로 다시 읽는다(재시작·reload 불필요).
-나가는 쪽: 영역 안 컴포넌트의 영역 밖 호출은 HTTP CONNECT 터널(RFC 9110 9.3.6)로 나간다. Exposure.egress 에 선언한 상대의 `<이름>:443` 에만 터널을 열고 그 밖은 403 BoundaryError(PERMISSION_DENIED, details.reason=EGRESS_DENIED)로 거절한다(R1.8·R6.2).
+나가는 쪽: 영역 안 컴포넌트의 영역 밖 호출은 같은 네트워크 공간의 loopback(127.0.0.1:3128, 계약 R1.8·CommonEnv OPENIT_EGRESS_PROXY)에서 받아 HTTP CONNECT 터널(RFC 9110 9.3.6)로 나간다. Exposure.egress 에 선언한 상대의 `<이름>:443` 에만 터널을 열고 그 밖은 403 BoundaryError(PERMISSION_DENIED, details.reason=EGRESS_DENIED)로 거절한다(R1.8·R6.2).
 사용: gen-area-gateway-config.py --exposure <Exposure JSON 파일> --upstream <host:port> [--cert F --key F] [--ingress-port 443 --egress-port 3128] > envoy.yaml
 입력은 Exposure 계약 스키마로 검증한다(CONVENTIONS 3절). 비밀 값 없음."""
 import argparse, json, re, sys
@@ -23,9 +23,12 @@ def allowed_authorities(egress):
     return sorted(set(exact)), public
 
 
-def build(exposure, upstream, cert, key, ingress_port, egress_port):
+def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstreams=None):
+    """route_upstreams: {경로 접두사: host:port}. 영역 안 컴포넌트가 여럿일 때 경로별 상류(가장 긴 접두사 우선). Exposure 스키마에는 경로별 상류 필드가 없어 배치가 준다(변경 요청 후보)."""
+    route_upstreams = route_upstreams or {}
     exact, public = allowed_authorities(exposure.get("egress") or [])
     uh, up = upstream.rsplit(":", 1)
+    ingress_prefixes = [(pre, "up%d" % i) for i, pre in enumerate(sorted(route_upstreams))]
     denied = json.dumps(DENIED, ensure_ascii=False, separators=(",", ":"))
     allow_routes = [{"match": {"connect_matcher": {}, "headers": [{"name": ":authority", "string_match": {"exact": a}}]},
                      "route": {"cluster": "dfp", "upgrade_configs": [{"upgrade_type": "CONNECT", "connect_config": {}}]}} for a in exact]
@@ -51,9 +54,10 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port):
                          "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                          "stat_prefix": "ingress", "stream_idle_timeout": "0s",
                          "route_config": {"name": "ingress", "virtual_hosts": [{"name": "area", "domains": ["*"], "routes": [
+                             *[{"match": {"prefix": pre}, "route": {"cluster": cl, "timeout": "0s", "idle_timeout": "120s"}} for pre, cl in sorted(ingress_prefixes, key=lambda x: -len(x[0]))],
                              {"match": {"prefix": "/"}, "route": {"cluster": "area", "timeout": "0s", "idle_timeout": "120s"}}]}]},
                          "http_filters": [{"name": "envoy.filters.http.router", "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]},
-                {"name": "egress", "address": {"socket_address": {"address": "0.0.0.0", "port_value": egress_port}},
+                {"name": "egress", "address": {"socket_address": {"address": "127.0.0.1", "port_value": egress_port}},
                  "filter_chains": [{"filters": [{"name": "envoy.filters.network.http_connection_manager", "typed_config": {
                      "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                      "stat_prefix": "egress", "upgrade_configs": [{"upgrade_type": "CONNECT"}], "http2_protocol_options": {"allow_connect": True},
@@ -64,6 +68,7 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port):
                          {"name": "envoy.filters.http.router", "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}],
             "clusters": [
                 {"name": "area", "type": "STRICT_DNS", "connect_timeout": "1s", "load_assignment": {"cluster_name": "area", "endpoints": [{"lb_endpoints": [{"endpoint": {"address": {"socket_address": {"address": uh, "port_value": int(up)}}}}]}]}},
+                *[{"name": "up%d" % i, "type": "STRICT_DNS", "connect_timeout": "1s", "load_assignment": {"cluster_name": "up%d" % i, "endpoints": [{"lb_endpoints": [{"endpoint": {"address": {"socket_address": {"address": route_upstreams[pre].rsplit(":", 1)[0], "port_value": int(route_upstreams[pre].rsplit(":", 1)[1])}}}}]}]}} for i, pre in enumerate(sorted(route_upstreams))],
                 {"name": "dfp", "lb_policy": "CLUSTER_PROVIDED", "connect_timeout": "5s", "cluster_type": {"name": "envoy.clusters.dynamic_forward_proxy", "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig", "dns_cache_config": dfp_cache}}}]},
     }
@@ -76,6 +81,7 @@ def main(argv):
     ap.add_argument("--exposure", required=True); ap.add_argument("--upstream", required=True)
     ap.add_argument("--cert", default="/certs/tls.crt"); ap.add_argument("--key", default="/certs/tls.key")
     ap.add_argument("--ingress-port", type=int, default=443); ap.add_argument("--egress-port", type=int, default=3128)
+    ap.add_argument("--route-upstream", action="append", default=[], metavar="PREFIX=host:port", help="경로 접두사별 상류(영역 안 컴포넌트가 여럿일 때). 여러 번 줄 수 있다")
     ap.add_argument("--sds-out", help="SDS 파일을 이 경로에 쓴다(기본: 표준 출력에 설정만)")
     a = ap.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", a.upstream):
@@ -85,7 +91,13 @@ def main(argv):
     errs = list(validator("Exposure").iter_errors(exposure))
     if errs:
         sys.exit("Exposure 선언이 계약을 어겼다: " + errs[0].message[:200])
-    cfg, sds = build(exposure, a.upstream, a.cert, a.key, a.ingress_port, a.egress_port)
+    ru = {}
+    for x in a.route_upstream:
+        pre, _, hp = x.partition("=")
+        if not pre.startswith("/") or not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", hp):
+            sys.exit("--route-upstream 은 /접두사=host:port 여야 한다: " + x)
+        ru[pre] = hp
+    cfg, sds = build(exposure, a.upstream, a.cert, a.key, a.ingress_port, a.egress_port, ru)
     if a.sds_out:
         json.dump(sds, open(a.sds_out, "w"), indent=1)
     json.dump(cfg, sys.stdout, indent=1, ensure_ascii=False)
