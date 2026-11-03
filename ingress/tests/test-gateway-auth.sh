@@ -4,39 +4,39 @@
 # 진짜 Caddyfile 을 띄우고 상류를 가짜로 둔다: 가짜 oauth2-proxy(쿠키 fakeauth=<계정> 으로 계정->그룹을 답한다)와 신원 머리글을 돌려주는 가짜 상류. 값은 출력하지 않는다.
 # 진짜 Keycloak·oauth2-proxy 로그인은 scripts/test-idp-smoke.sh 가 본다. (Docker 필요)
 set -uo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../../scripts/lib.sh"
 T=$(mktemp -d); export SECRETS_DIR=$T
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak oauth2-proxy || { echo "시험 PKI 를 만들지 못했다"; exit 1; }   # 게이트웨이는 상류를 https 로 부르므로 가짜 상류 앞에 TLS 를 붙인다(ADR 0060)
-GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$DEPLOY_ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$DEPLOY_ROOT/locks/images.lock")
+GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
 NET=gwauth-net-$$; CN=gwauth-csrf-$$; CF=gwauth-fakeauth-$$; CU=gwauth-upstream-$$
 cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$T"; }; trap cleanup EXIT
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n"; FAILS=$((FAILS+1)); fi; }
-ACCOUNTS=$DEPLOY_ROOT/test/gateway-oidc/accounts.test.conf
-val() { docker run --rm $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$DEPLOY_ROOT/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$DEPLOY_ROOT/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$DEPLOY_ROOT/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$DEPLOY_ROOT/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" "$GW" caddy validate --config /etc/caddy/Caddyfile; }
+ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
+val() { docker run --rm $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$ROOT/ingress/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$ROOT/ingress/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$ROOT/ingress/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" "$GW" caddy validate --config /etc/caddy/Caddyfile; }
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
-ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 뗀다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; [ "$(GATEWAY_HOSTS="kiosk.hospital.local:8443, 10.0.0.5:443" gateway_host_names)" = "\"kiosk.hospital.local\", \"10.0.0.5\"" ]' _ "$DEPLOY_ROOT"
-ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; ! ( GATEWAY_HOSTS="*.x:8443" gateway_host_names ) >/dev/null 2>&1 && ! ( GATEWAY_HOSTS="a\"b:8443" gateway_host_names ) >/dev/null 2>&1' _ "$DEPLOY_ROOT"
-ok "밖에서 보이는 주소는 첫 호스트 이름 + 밖에 보이는 포트(443 이면 포트 생략)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; [ "$(GATEWAY_HOSTS="a.local:8443, b.local:8443" GATEWAY_PUBLIC_TLS_PORT=443 gateway_public_url)" = "https://a.local" ] && [ "$(GATEWAY_HOSTS="a.local:8443" GATEWAY_PUBLIC_TLS_PORT=9443 gateway_public_url)" = "https://a.local:9443" ] && [ "$(gateway_public_url)" = "https://localhost:8443" ]' _ "$DEPLOY_ROOT"
-OUT=$(bash "$DEPLOY_ROOT/scripts/gen-secrets.sh" --test-fixtures "$T" 2>&1); ok "gen-secrets.sh 성공" test -s "$T/gateway-devices.caddy"
+ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 뗀다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; [ "$(GATEWAY_HOSTS="kiosk.hospital.local:8443, 10.0.0.5:443" gateway_host_names)" = "\"kiosk.hospital.local\", \"10.0.0.5\"" ]' _ "$ROOT"
+ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; ! ( GATEWAY_HOSTS="*.x:8443" gateway_host_names ) >/dev/null 2>&1 && ! ( GATEWAY_HOSTS="a\"b:8443" gateway_host_names ) >/dev/null 2>&1' _ "$ROOT"
+ok "밖에서 보이는 주소는 첫 호스트 이름 + 밖에 보이는 포트(443 이면 포트 생략)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; [ "$(GATEWAY_HOSTS="a.local:8443, b.local:8443" GATEWAY_PUBLIC_TLS_PORT=443 gateway_public_url)" = "https://a.local" ] && [ "$(GATEWAY_HOSTS="a.local:8443" GATEWAY_PUBLIC_TLS_PORT=9443 gateway_public_url)" = "https://a.local:9443" ] && [ "$(gateway_public_url)" = "https://localhost:8443" ]' _ "$ROOT"
+OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-secrets.sh 성공" test -s "$T/gateway-devices.caddy"
 ok "출력에 비밀 값이 없다" bash -c '! grep -qE "[0-9a-f]{40}" <<<"$1"' _ "$OUT"
-ok "정적 계정 파일·basic_auth 조각은 만들지 않는다(U82: 사람 인증은 OIDC)" bash -c '[ ! -e "$1/gateway-accounts.caddy" ] && ! grep -v "^[[:space:]]*#" "$2/config/Caddyfile" "$2/config/gateway-auth.caddy" | grep -q "basic_auth"' _ "$T" "$DEPLOY_ROOT"
+ok "정적 계정 파일·basic_auth 조각은 만들지 않는다(U82: 사람 인증은 OIDC)" bash -c '[ ! -e "$1/gateway-accounts.caddy" ] && ! grep -v "^[[:space:]]*#" "$2/ingress/config/Caddyfile" "$2/ingress/config/gateway-auth.caddy" | grep -q "basic_auth"' _ "$T" "$ROOT"
 ok "Caddyfile + 인증 조각 + 기기 조각이 caddy validate 통과" val
-bash "$DEPLOY_ROOT/scripts/kiosk-add-device.sh" add lobby-2 >/dev/null 2>&1
-ok "기기 추가: 기본 시험 기기 4대(e2e, e2e-a, e2e-b, e2e-c) + 1대 = 5대, devices.caddy 에 토큰 5개, survey 기기 토큰 표에도 5줄(device_id=토큰)" bash -c '[ "$(bash $2/scripts/kiosk-add-device.sh list | wc -l)" = 5 ] && [ "$(grep -o Bearer $1/gateway-devices.caddy | wc -l)" = 5 ] && [ "$(grep -c "^[a-z0-9-]*=[0-9a-f]\{16,\}$" $1/tokens/survey-kiosk-device-tokens)" = 5 ]' _ "$T" "$DEPLOY_ROOT"
+bash "$ROOT/ingress/scripts/kiosk-add-device.sh" add lobby-2 >/dev/null 2>&1
+ok "기기 추가: 기본 시험 기기 4대(e2e, e2e-a, e2e-b, e2e-c) + 1대 = 5대, devices.caddy 에 토큰 5개, survey 기기 토큰 표에도 5줄(device_id=토큰)" bash -c '[ "$(bash $2/ingress/scripts/kiosk-add-device.sh list | wc -l)" = 5 ] && [ "$(grep -o Bearer $1/gateway-devices.caddy | wc -l)" = 5 ] && [ "$(grep -c "^[a-z0-9-]*=[0-9a-f]\{16,\}$" $1/tokens/survey-kiosk-device-tokens)" = 5 ]' _ "$T" "$ROOT"
 ok "기기 5대일 때도 caddy validate 통과(기기 목록은 expression 의 in [...] 이다: header 매처는 값 하나만 받는다)" val
-ok "기기 파일을 지우고 sync 하면 폐기된다(토큰 4개, survey 표도 4줄)" bash -c 'rm $1/tokens/kiosk-device-lobby-2; bash $2/scripts/kiosk-add-device.sh sync >/dev/null 2>&1; [ "$(grep -o Bearer $1/gateway-devices.caddy | wc -l)" = 4 ] && [ "$(wc -l < $1/tokens/survey-kiosk-device-tokens)" = 4 ]' _ "$T" "$DEPLOY_ROOT"
-ok "잘못된 기기 ID 는 거부" bash -c '! bash $1/scripts/kiosk-add-device.sh add "Bad ID" >/dev/null 2>&1' _ "$DEPLOY_ROOT"
-ok "기기가 0대여도 설정이 유효(모두 거부)" bash -c 'rm $1/tokens/kiosk-device-*; bash $2/scripts/kiosk-add-device.sh sync >/dev/null 2>&1; grep -q "expression false" $1/gateway-devices.caddy' _ "$T" "$DEPLOY_ROOT"
+ok "기기 파일을 지우고 sync 하면 폐기된다(토큰 4개, survey 표도 4줄)" bash -c 'rm $1/tokens/kiosk-device-lobby-2; bash $2/ingress/scripts/kiosk-add-device.sh sync >/dev/null 2>&1; [ "$(grep -o Bearer $1/gateway-devices.caddy | wc -l)" = 4 ] && [ "$(wc -l < $1/tokens/survey-kiosk-device-tokens)" = 4 ]' _ "$T" "$ROOT"
+ok "잘못된 기기 ID 는 거부" bash -c '! bash $1/scripts/kiosk-add-device.sh add "Bad ID" >/dev/null 2>&1' _ "$ROOT"
+ok "기기가 0대여도 설정이 유효(모두 거부)" bash -c 'rm $1/tokens/kiosk-device-*; bash $2/ingress/scripts/kiosk-add-device.sh sync >/dev/null 2>&1; grep -q "expression false" $1/gateway-devices.caddy' _ "$T" "$ROOT"
 ok "0대일 때 caddy validate 통과" val
-bash "$DEPLOY_ROOT/scripts/kiosk-add-device.sh" add auth-1 >/dev/null 2>&1   # 인증 계약 시험(아래)이 쓸 기기 한 대. 위에서 0대로 만든 목록에 더한다
+bash "$ROOT/ingress/scripts/kiosk-add-device.sh" add auth-1 >/dev/null 2>&1   # 인증 계약 시험(아래)이 쓸 기기 한 대. 위에서 0대로 만든 목록에 더한다
 # 가짜 oauth2-proxy 와 가짜 상류를 같은 네트워크에 둔다. 상류 이름은 Caddyfile 이 부르는 서비스 이름이다
 docker network create $NET >/dev/null
-docker run -d --name $CF --network $NET --network-alias oauth2-proxy -e FAKE_ACCOUNTS=/accounts -v "$ACCOUNTS:/accounts:ro" -v "$DEPLOY_ROOT/test/gateway-oidc/fake-oauth2-proxy.py:/f.py:ro" "$UTIL" python /f.py >/dev/null
-docker run -d --name $CU --network $NET $(for h in survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak; do echo --network-alias $h; done) -v "$DEPLOY_ROOT/test/gateway-oidc/echo-upstream.py:/e.py:ro" "$UTIL" python /e.py >/dev/null
+docker run -d --name $CF --network $NET --network-alias oauth2-proxy -e FAKE_ACCOUNTS=/accounts -v "$ACCOUNTS:/accounts:ro" -v "$ROOT/ingress/tests/gateway-oidc/fake-oauth2-proxy.py:/f.py:ro" "$UTIL" python /f.py >/dev/null
+docker run -d --name $CU --network $NET $(for h in survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak; do echo --network-alias $h; done) -v "$ROOT/ingress/tests/gateway-oidc/echo-upstream.py:/e.py:ro" "$UTIL" python /e.py >/dev/null
 printf '{\n\tadmin off\n\tskip_install_trust\n\tauto_https off\n}\nhttps://:443 {\n\ttls /pki/leaf.crt /pki/leaf.key\n\treverse_proxy 127.0.0.1:{$UP}\n}\n' > "$PKI/front.caddy"
 for pair in "$CU:8080" "$CF:4180"; do docker run -d --name "${pair%%:*}-tls" --network "container:${pair%%:*}" -e UP="${pair##*:}" -v "$PKI/front.caddy:/etc/caddy/Caddyfile:ro" -v "$PKI:/pki:ro" "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null; done
 # 교차 사이트 요청 방어(점검 M2)의 실제 동작: gateway 를 띄우고 헤더 조합별 응답을 본다. 인증이 없으면 401 이므로 "403 + 교차 출처 문구"는 이 규칙만의 응답이다. (Docker·Caddy 필요)
-docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$DEPLOY_ROOT/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$DEPLOY_ROOT/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$DEPLOY_ROOT/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$DEPLOY_ROOT/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$GW" >/dev/null
+docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$ROOT/ingress/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$ROOT/ingress/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$ROOT/ingress/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$GW" >/dev/null
 CP=""; for i in $(seq 1 30); do CP=$(docker port $CN 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$CP" ] && curl -sk -o /dev/null -m 2 "https://127.0.0.1:$CP/healthz" && break; sleep 0.5; done   # port-wait: 게이트웨이 포트가 열릴 때까지만 기다린다
 cs() { curl -sk -m 5 -o "$T/cs.out" -w '%{http_code}' -X "$1" "${@:3}" "https://127.0.0.1:$CP$2"; }
 csrf_case() { # csrf_case <설명> <기대 코드> <교차 출처 문구 포함 여부> <메서드> <경로> [curl 인자...]
@@ -196,7 +196,7 @@ for pth in /healthz /readyz; do AN=$((AN+1)); hb=$(curl -sk -m 10 -D "$T/hh" "ht
 AN=$((AN+1)); big=$(head -c 9437184 /dev/zero | curl -sk -o /dev/null -m 30 -w '%{http_code}' -X POST --data-binary @- -H 'Content-Type: text/plain' "https://127.0.0.1:$CP/v1/materials?question_set_id=x" 2>/dev/null || true)
 if [ "$big" = 413 ]; then echo "  PASS 8MiB 초과 본문은 413"; else echo "  FAIL 8MiB 초과 본문이 $big (기대 413)"; FAILS=$((FAILS+1)); fi
 # E2E 와 같은 기대표·같은 스크립트(scripts/check-unauth-expectations.sh, test/gateway-oidc/unauth-expectations.txt): 인증 없는 요청의 응답
-AN=$((AN+1)); if out=$(bash "$DEPLOY_ROOT/scripts/check-unauth-expectations.sh" "https://127.0.0.1:$CP" --insecure 2>&1); then echo "  PASS $out"; else echo "  FAIL 인증 없는 요청 기대표: $out"; FAILS=$((FAILS+1)); fi
+AN=$((AN+1)); if out=$(bash "$ROOT/ingress/scripts/check-unauth-expectations.sh" "https://127.0.0.1:$CP" --insecure 2>&1); then echo "  PASS $out"; else echo "  FAIL 인증 없는 요청 기대표: $out"; FAILS=$((FAILS+1)); fi
 # 기기 토큰 경로(공개 API): 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer (RFC 6750 3절)
 DEVTOK=$(cat "$T/tokens/kiosk-device-auth-1")
 chk401 "기기 토큰 없음 POST /v1/sessions" Bearer - POST /v1/sessions

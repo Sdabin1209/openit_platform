@@ -1,5 +1,7 @@
+README.md
 pyproject.toml
 openit_platform.egg-info/PKG-INFO
 openit_platform.egg-info/SOURCES.txt
 openit_platform.egg-info/dependency_links.txt
 openit_platform.egg-info/top_level.txt
+tests/test_area_gateway.py

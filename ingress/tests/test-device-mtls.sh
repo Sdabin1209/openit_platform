@@ -4,26 +4,26 @@
 # 직원 경로는 인증서 없이도 계정 인증으로 동작, 2.x 기기 토큰 경로에서도 클라이언트 위조 헤더가 지워진다. 키 값은 출력하지 않는다.
 set -uo pipefail
 # 사용: test-device-mtls.sh [--static]   --static: Docker·Caddy 없이 하는 정적 시험만(일회용 CA 스크립트, 설정 조각, Caddyfile 구조). Docker 에 닿지 않으면 정적 시험만 하고 나머지를 '미실행'으로 알린다(통과로 세지 않는다)
-DEPLOY_NO_DOCKER=1; source "$(dirname "$0")/lib.sh"
+DEPLOY_NO_DOCKER=1; source "$(dirname "$0")/../../scripts/lib.sh"
 STATIC_ONLY=0; [ "${1:-}" = --static ] && STATIC_ONLY=1
 T=$(mktemp -d); chmod 755 "$T"; ID=$$; N=0; F=0
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service || exit 1   # ADR 0060
-GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$DEPLOY_ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$DEPLOY_ROOT/locks/images.lock")
+GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
 NET=devmtls-net-$ID; CE=devmtls-echo-$ID; CG=devmtls-gw-$ID
 cleanup() { docker rm -f $CG $CE $CE-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$T"; }
 trap cleanup EXIT
 command -v openssl >/dev/null || { echo "openssl 이 필요하다"; exit 1; }
 pass() { N=$((N+1)); echo "  PASS $1"; }; fail() { N=$((N+1)); F=$((F+1)); echo "  FAIL $1"; }
 # ---- 정적 시험(Docker 불필요) ----
-CF="$DEPLOY_ROOT/config/Caddyfile"
-export DEVICE_PKI_DIR="$T/pki"; bash "$DEPLOY_ROOT/scripts/device-pki.sh" init >/dev/null 2>&1 && bash "$DEPLOY_ROOT/scripts/device-pki.sh" issue kiosk-lobby-1 >/dev/null 2>&1 && pass "일회용 CA·기기 인증서 발급(openssl)" || fail "device-pki 발급"
+CF="$ROOT/ingress/config/Caddyfile"
+export DEVICE_PKI_DIR="$T/pki"; bash "$ROOT/scripts/device-pki.sh" init >/dev/null 2>&1 && bash "$ROOT/scripts/device-pki.sh" issue kiosk-lobby-1 >/dev/null 2>&1 && pass "일회용 CA·기기 인증서 발급(openssl)" || fail "device-pki 발급"
 [ "$(stat -c %a "$T/pki")" = 700 ] && [ "$(stat -c %a "$T/pki/ca.key")" = 600 ] && [ "$(stat -c %a "$T/pki/kiosk-lobby-1.key")" = 600 ] && pass "폴더 700, 키 파일 600" || fail "키 파일 권한"
-bash "$DEPLOY_ROOT/scripts/device-pki.sh" issue 'bad id' >/dev/null 2>&1 && fail "형식에 안 맞는 기기 ID 를 발급했다" || pass "기기 ID 형식(^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$)에 안 맞으면 발급 거부"
+bash "$ROOT/scripts/device-pki.sh" issue 'bad id' >/dev/null 2>&1 && fail "형식에 안 맞는 기기 ID 를 발급했다" || pass "기기 ID 형식(^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$)에 안 맞으면 발급 거부"
 openssl verify -CAfile "$T/pki/ca.crt" "$T/pki/kiosk-lobby-1.crt" >/dev/null 2>&1 && openssl x509 -in "$T/pki/kiosk-lobby-1.crt" -noout -subject | grep -q 'CN *= *kiosk-lobby-1' && pass "발급한 인증서가 일회용 CA 로 검증되고 주체 CN 이 기기 ID 다" || fail "인증서 검증/CN"
-git -C "$DEPLOY_ROOT" check-ignore -q state/device-pki/ca.key 2>/dev/null && pass "키 위치(state/device-pki)는 .gitignore 대상이다" || { [ ! -d "$DEPLOY_ROOT/.git" ] && [ ! -f "$DEPLOY_ROOT/.git" ] && echo "  SKIP .gitignore 확인(git 리포지토리 밖에서 실행)" || fail "state/device-pki 가 .gitignore 대상이 아니다"; }
-grep -q '시험·데모 전용' "$DEPLOY_ROOT/scripts/device-pki.sh" && pass "device-pki.sh 에 운영 사용 금지 표시가 있다" || fail "운영 금지 표시"
-! grep -v '^[[:space:]]*#' "$DEPLOY_ROOT/config/device-tls.caddy" | grep -q '^[[:space:]]*client_auth' && pass "기본 조각(device-tls.caddy)은 검증이 꺼져 있다(client_auth 없음)" || fail "기본 조각이 검증을 켠다"
-grep -q 'mode verify_if_given' "$DEPLOY_ROOT/config/device-tls.mtls.caddy.example" && grep -q 'trusted_ca_cert_file /etc/caddy/device-ca.pem' "$DEPLOY_ROOT/config/device-tls.mtls.caddy.example" && pass "켠 조각은 신뢰 CA 파일 하나(/etc/caddy/device-ca.pem)를 쓴다" || fail "켠 조각 내용"
+git -C "$ROOT" check-ignore -q state/device-pki/ca.key 2>/dev/null && pass "키 위치(state/device-pki)는 .gitignore 대상이다" || { [ ! -d "$ROOT/.git" ] && [ ! -f "$ROOT/.git" ] && echo "  SKIP .gitignore 확인(git 리포지토리 밖에서 실행)" || fail "state/device-pki 가 .gitignore 대상이 아니다"; }
+grep -q '시험·데모 전용' "$ROOT/scripts/device-pki.sh" && pass "device-pki.sh 에 운영 사용 금지 표시가 있다" || fail "운영 금지 표시"
+! grep -v '^[[:space:]]*#' "$ROOT/ingress/config/device-tls.caddy" | grep -q '^[[:space:]]*client_auth' && pass "기본 조각(device-tls.caddy)은 검증이 꺼져 있다(client_auth 없음)" || fail "기본 조각이 검증을 켠다"
+grep -q 'mode verify_if_given' "$ROOT/ingress/config/device-tls.mtls.caddy.example" && grep -q 'trusted_ca_cert_file /etc/caddy/device-ca.pem' "$ROOT/ingress/config/device-tls.mtls.caddy.example" && pass "켠 조각은 신뢰 CA 파일 하나(/etc/caddy/device-ca.pem)를 쓴다" || fail "켠 조각 내용"
 # Caddyfile 구조: 서비스(survey)로 가는 reverse_proxy 마다 클라이언트가 보낸 기기 헤더를 지우거나(토큰·직원 경로) 인증서 CN 으로 덮어쓴다(인증서 경로)
 python3 - "$CF" <<'PY' && pass "survey-service 로 가는 reverse_proxy 모두 X-Openit-Device 를 지우거나 CN 으로 덮어쓰고, X-Openit-Dn 은 지운다" || fail "Caddyfile 헤더 처리"
 import re, sys
@@ -44,18 +44,18 @@ if [ $STATIC_ONLY = 1 ] || ! command -v docker >/dev/null 2>&1 || ! docker info 
   echo; [ $F = 0 ] && echo "통과(정적만): 기기 인증서 자체 시험 $N건" || { echo "실패: $F건 ($N건)"; exit 1; }; exit $F
 fi
 DEPLOY_NO_DOCKER=0; detect_docker
-S="$T/s"; bash "$DEPLOY_ROOT/scripts/gen-secrets.sh" --test-fixtures "$S" >/dev/null 2>&1 || { echo "gen-secrets 실패"; exit 1; }
-bash "$DEPLOY_ROOT/scripts/device-pki.sh" gateway-config >/dev/null 2>&1
-DEVICE_PKI_DIR="$T/pki2" bash "$DEPLOY_ROOT/scripts/device-pki.sh" init >/dev/null 2>&1; DEVICE_PKI_DIR="$T/pki2" bash "$DEPLOY_ROOT/scripts/device-pki.sh" issue rogue-1 >/dev/null 2>&1   # 신뢰하지 않는 다른 CA
+S="$T/s"; bash "$ROOT/scripts/gen-secrets.sh" --test-fixtures "$S" >/dev/null 2>&1 || { echo "gen-secrets 실패"; exit 1; }
+bash "$ROOT/scripts/device-pki.sh" gateway-config >/dev/null 2>&1
+DEVICE_PKI_DIR="$T/pki2" bash "$ROOT/scripts/device-pki.sh" init >/dev/null 2>&1; DEVICE_PKI_DIR="$T/pki2" bash "$ROOT/scripts/device-pki.sh" issue rogue-1 >/dev/null 2>&1   # 신뢰하지 않는 다른 CA
 gwrun() { # gwrun <이름> <device-tls 조각> <CA 파일> [docker 인자...]: 게이트웨이를 임시 네트워크에서 띄운다
   local name=$1 tls=$2 ca=$3; shift 3
-  docker run -d --name "$name" $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES --network $NET "$@" -v "$DEPLOY_ROOT/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$DEPLOY_ROOT/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$S/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" \
+  docker run -d --name "$name" $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES --network $NET "$@" -v "$ROOT/ingress/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$S/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" \
     -v "$tls:/etc/caddy/device-tls.caddy:ro" -v "$ca:/etc/caddy/device-ca.pem:ro" -v "$S/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null; }
-val() { docker run --rm $(gateway_test_mounts "$PKI") -v "$DEPLOY_ROOT/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$DEPLOY_ROOT/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$S/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$1:/etc/caddy/device-tls.caddy:ro" -v "$2:/etc/caddy/device-ca.pem:ro" -v "$S/tokens:/run/secrets:ro" "$GW" caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; }
-val "$DEPLOY_ROOT/config/device-tls.caddy" "$DEPLOY_ROOT/config/device-ca.pem" && pass "Caddyfile 검증 통과(기본: 인증서 검증 꺼짐, 빈 조각)" || fail "Caddyfile 검증(기본)"
+val() { docker run --rm $(gateway_test_mounts "$PKI") -v "$ROOT/ingress/config/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$S/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$1:/etc/caddy/device-tls.caddy:ro" -v "$2:/etc/caddy/device-ca.pem:ro" -v "$S/tokens:/run/secrets:ro" "$GW" caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; }
+val "$ROOT/ingress/config/device-tls.caddy" "$ROOT/ingress/config/device-ca.pem" && pass "Caddyfile 검증 통과(기본: 인증서 검증 꺼짐, 빈 조각)" || fail "Caddyfile 검증(기본)"
 val "$T/pki/device-tls.caddy" "$T/pki/device-ca.pem" && pass "Caddyfile 검증 통과(인증서 검증 켜짐)" || fail "Caddyfile 검증(켜짐)"
 docker network create $NET >/dev/null
-docker run -d --name $CE --network $NET --network-alias survey-service -v "$DEPLOY_ROOT/test/device-mtls-echo.py:/echo.py:ro" "$UTIL" python /echo.py >/dev/null
+docker run -d --name $CE --network $NET --network-alias survey-service -v "$ROOT/test/device-mtls-echo.py:/echo.py:ro" "$UTIL" python /echo.py >/dev/null
 printf '{\n\tadmin off\n\tskip_install_trust\n\tauto_https off\n}\nhttps://:443 {\n\ttls /pki/leaf.crt /pki/leaf.key\n\treverse_proxy 127.0.0.1:8080\n}\n' > "$PKI/front.caddy"
 docker run -d --name $CE-tls --network container:$CE -v "$PKI/front.caddy:/etc/caddy/Caddyfile:ro" -v "$PKI:/pki:ro" "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null   # 게이트웨이는 상류를 https 로 부른다(ADR 0060)
 gwrun $CG "$T/pki/device-tls.caddy" "$T/pki/device-ca.pem"

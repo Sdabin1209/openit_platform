@@ -11,9 +11,9 @@
 #   --apply: 목록을 쓴 뒤 게이트웨이를 다시 시작해 반영한다(DEPLOY_PROJECT, 기본 deploy). Caddy 가 설정을 읽을 때 한 번 치환해 다시 시작해야 반영된다.
 #   환경: SECRETS_DIR(기본 secrets/)
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../../scripts/lib.sh"
 source "$(dirname "$0")/gateway-lib.sh"
-D=${SECRETS_DIR:-$DEPLOY_ROOT/secrets}; [ -d "$D/tokens" ] || die "비밀 폴더가 없다: $D/tokens (먼저 scripts/gen-secrets.sh)"
+D=${SECRETS_DIR:-$ROOT/secrets}; [ -d "$D/tokens" ] || die "비밀 폴더가 없다: $D/tokens (먼저 scripts/gen-secrets.sh)"
 CMD=${1:-}; ID=${2:-}; APPLY=0; QSET=keep; PLACE=${3:-}
 args=("$@"); for ((i=0;i<${#args[@]};i++)); do case "${args[$i]}" in --apply) APPLY=1;; --question-set) QSET=${args[$((i+1))]:-}; [ -n "$QSET" ] || die "--question-set 에는 문진표 ID 가 필요하다";; esac; done
 case "$CMD" in
@@ -42,7 +42,7 @@ PY
   ) || die "기기 $1 의 설정을 쓰지 못했다(위 사유)"; chmod 600 "$D/kiosk-config/$1.json"
 }
 case "$CMD" in
-  from-list) LIST=${2:-}; case "$LIST" in ""|--*) LIST=$DEPLOY_ROOT/config/kiosk-devices.conf;; esac;   # from-list --apply 처럼 옵션이 두 번째 인자로 오면 기본 목록(점검 L4)
+  from-list) LIST=${2:-}; case "$LIST" in ""|--*) LIST=$ROOT/ingress/config/kiosk-devices.conf;; esac;   # from-list --apply 처럼 옵션이 두 번째 인자로 오면 기본 목록(점검 L4)
     [ -f "$LIST" ] || die "기기 목록 파일이 없다: $LIST (config/kiosk-devices.conf.example 참고)"
     while read -r id qsid _; do case "$id" in ""|\#*) continue;; esac; case "${qsid:-}" in ""|\#*) qsid=keep;; esac; [[ "$id" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "기기 ID 규칙 위반: $id"
       f="$D/tokens/kiosk-device-$id"; [ -s "$f" ] || { ( umask 077; gw_rnd > "$f" ); echo "기기 토큰을 만들었다: $id" >&2; }; chmod 600 "$f"; kiosk_config "$id" "$qsid"; done < "$LIST";;

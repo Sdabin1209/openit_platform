@@ -4,27 +4,27 @@
 # 모든 단언은 상태 코드 + 본문 + 필요한 머리글을 함께 본다. 환경 변수 FAULTS_MUTATE=1 이면 일부러 Caddyfile 을 망가뜨려(503 매핑 제거) 단언이 실패하는지 확인한다(변이 확인).
 # 값(토큰)은 출력하지 않는다. 느린 상류(504) 경우는 게이트웨이 상류 한도(55초)를 실제로 기다리므로 이 시험은 약 90초 걸린다.
 set -uo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../../scripts/lib.sh"
 T=$(mktemp -d); export SECRETS_DIR=$T
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak oauth2-proxy || { echo "시험 PKI 를 만들지 못했다"; exit 1; }
-GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$DEPLOY_ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$DEPLOY_ROOT/locks/images.lock")
+GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
 ID=$$; NET=gwfault-net-$ID; CN=gwfault-gw-$ID; CF=gwfault-fakeauth-$ID; CU=gwfault-up-$ID
 cleanup() { [ "${FAULTS_KEEP:-0}" = 1 ] && { echo "FAULTS_KEEP=1: 컨테이너 $CN 등을 남겼다(포트 $CP, 기기 토큰 파일 $T/tokens)"; return; }; docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$T"; }; trap cleanup EXIT
 FAILS=0; N=0
 chk() { # chk <설명> <조건 명령...>
   local n=$1; shift; N=$((N+1)); if "$@" >/dev/null 2>&1; then echo "  PASS $n"; else echo "  FAIL $n"; FAILS=$((FAILS+1)); fi; }
-CF_FILE=$DEPLOY_ROOT/config/Caddyfile
+CF_FILE=$ROOT/ingress/config/Caddyfile
 if [ "${FAULTS_MUTATE:-0}" = 1 ]; then   # 변이: 연결 거부를 503 이 아니라 200 으로 바꾼다. 아래 R3.1 단언이 실패해야 한다
   cp "$CF_FILE" "$T/Caddyfile.mut"; sed -i 's/respond `{"code":"UPSTREAM_UNAVAILABLE"}` 503/respond `{"code":"UPSTREAM_UNAVAILABLE"}` 200/' "$T/Caddyfile.mut"; CF_FILE=$T/Caddyfile.mut
 fi
-bash "$DEPLOY_ROOT/scripts/gen-secrets.sh" --test-fixtures "$T" >/dev/null 2>&1; bash "$DEPLOY_ROOT/scripts/kiosk-add-device.sh" add faults-1 >/dev/null 2>&1
+bash "$ROOT/scripts/gen-secrets.sh" --test-fixtures "$T" >/dev/null 2>&1; bash "$ROOT/ingress/scripts/kiosk-add-device.sh" add faults-1 >/dev/null 2>&1
 DEVTOK=$(cat "$T/tokens/kiosk-device-faults-1")
 docker network create $NET >/dev/null
-docker run -d --name $CF --network $NET --network-alias oauth2-proxy -e FAKE_ACCOUNTS=/accounts -v "$DEPLOY_ROOT/test/gateway-oidc/accounts.test.conf:/accounts:ro" -v "$DEPLOY_ROOT/test/gateway-oidc/fake-oauth2-proxy.py:/f.py:ro" "$UTIL" python /f.py >/dev/null
-docker run -d --name $CU --network $NET $(for h in survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak; do echo --network-alias $h; done) -v "$DEPLOY_ROOT/test/gateway-oidc/fault-upstream.py:/e.py:ro" "$UTIL" python /e.py >/dev/null
+docker run -d --name $CF --network $NET --network-alias oauth2-proxy -e FAKE_ACCOUNTS=/accounts -v "$ROOT/ingress/tests/gateway-oidc/accounts.test.conf:/accounts:ro" -v "$ROOT/ingress/tests/gateway-oidc/fake-oauth2-proxy.py:/f.py:ro" "$UTIL" python /f.py >/dev/null
+docker run -d --name $CU --network $NET $(for h in survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak; do echo --network-alias $h; done) -v "$ROOT/ingress/tests/gateway-oidc/fault-upstream.py:/e.py:ro" "$UTIL" python /e.py >/dev/null
 printf '{\n\tadmin off\n\tskip_install_trust\n\tauto_https off\n}\nhttps://:443 {\n\ttls /pki/leaf.crt /pki/leaf.key\n\treverse_proxy 127.0.0.1:{$UP}\n}\n' > "$PKI/front.caddy"
 for pair in "$CU:8080" "$CF:4180"; do docker run -d --name "${pair%%:*}-tls" --network "container:${pair%%:*}" -e UP="${pair##*:}" -v "$PKI/front.caddy:/etc/caddy/Caddyfile:ro" -v "$PKI:/pki:ro" "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null; done
-docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$CF_FILE:/etc/caddy/Caddyfile:ro" -v "$DEPLOY_ROOT/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$DEPLOY_ROOT/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$DEPLOY_ROOT/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$GW" >/dev/null
+docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") -e GATEWAY_HOST_NAMES -v "$CF_FILE:/etc/caddy/Caddyfile:ro" -v "$ROOT/ingress/config/gateway-auth.caddy:/etc/caddy/auth.caddy:ro" -v "$ROOT/ingress/config/device-tls.caddy:/etc/caddy/device-tls.caddy:ro" -v "$ROOT/ingress/config/device-ca.pem:/etc/caddy/device-ca.pem:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$GW" >/dev/null
 CP=""; for i in $(seq 1 40); do CP=$(docker port $CN 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$CP" ] && curl -sk -o /dev/null -m 2 "https://127.0.0.1:$CP/healthz" && break; sleep 0.5; done   # port-wait: 게이트웨이 포트가 열릴 때까지만 기다린다
 [ -n "$CP" ] || { echo "게이트웨이가 뜨지 않았다"; docker logs $CN 2>&1 | tail -n 5; exit 1; }
 URL="https://127.0.0.1:$CP/v1/sessions"
@@ -48,7 +48,7 @@ chk "R3.5 Content-Length 가 8MiB 초과: 413 + {\"code\":\"PAYLOAD_TOO_LARGE\"}
 c=$(head -c 9437184 /dev/zero | curl -sk -m 60 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H "Authorization: Bearer $DEVTOK" -H 'Content-Type: text/plain' -H 'Transfer-Encoding: chunked' --data-binary @- "$URL")
 chk "R3.5 전송 중(chunked)에 8MiB 초과: 413 (503 아님)" bash -c '[ "$1" = 413 ]' _ "$c"
 # ---- R3.6: 요청 줄·헤더가 너무 큼 -> 414·431 ----
-docker cp "$CN:/data/caddy/pki/authorities/local/root.crt" "$T/gw-ca.crt" >/dev/null 2>&1 || bash "$DEPLOY_ROOT/scripts/export-gateway-ca.sh" "$CN" "$T/gw-ca.crt" >/dev/null 2>&1   # 게이트웨이 내부 CA 루트(공개): 검증을 끄지 않고 이 루트로 확인한다
+docker cp "$CN:/data/caddy/pki/authorities/local/root.crt" "$T/gw-ca.crt" >/dev/null 2>&1 || bash "$ROOT/scripts/export-gateway-ca.sh" "$CN" "$T/gw-ca.crt" >/dev/null 2>&1   # 게이트웨이 내부 CA 루트(공개): 검증을 끄지 않고 이 루트로 확인한다
 big_req() { # big_req <header|uri>: 1.3MB 헤더 또는 요청 줄을 파이썬 소켓으로 보내(셸 인자·curl 이 응답을 못 읽는 문제 때문) 응답 상태 코드를 낸다
   python3 - "$1" "$CP" "$DEVTOK" "$T/gw-ca.crt" <<'PY'
 import socket, ssl, sys

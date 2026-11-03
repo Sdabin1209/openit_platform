@@ -5,8 +5,8 @@
 #       device-pki.sh gateway-config        게이트웨이가 쓸 파일 두 개(state/device-pki/device-tls.caddy, device-ca.pem)를 만들고 DEVICE_TLS_CONF·DEVICE_CA_FILE 로 가리키는 법을 안내한다
 # 환경: DEVICE_PKI_DIR(기본 state/device-pki). 키 파일은 권한 600이고 폴더는 700이다. state/ 는 .gitignore 라 리포에 들어가지 않는다. 키 값은 출력하지 않는다.
 set -euo pipefail
-DEPLOY_NO_DOCKER=1; source "$(dirname "$0")/lib.sh"
-D=${DEVICE_PKI_DIR:-$DEPLOY_ROOT/state/device-pki}
+DEPLOY_NO_DOCKER=1; source "$(dirname "$0")/../../scripts/lib.sh"
+D=${DEVICE_PKI_DIR:-$ROOT/state/device-pki}
 command -v openssl >/dev/null || die "openssl 이 필요하다"
 banner() { echo "!! 시험·데모 전용 일회용 CA 입니다. 운영 키오스크 인증서는 조직 PKI/MDM 이 발급합니다(ADR 0040). 운영 서버에 이 CA 를 신뢰시키지 마십시오. !!" >&2; }
 case "${1:-}" in
@@ -26,7 +26,7 @@ case "${1:-}" in
     chmod 600 "$D/$ID.key"; echo "기기 인증서를 만들었다(유효 7일, CN=$ID): $D/$ID.crt, 키 $D/$ID.key";;
   gateway-config)
     [ -f "$D/ca.crt" ] || die "먼저 init"; banner
-    cp "$D/ca.crt" "$D/device-ca.pem"; cp "$DEPLOY_ROOT/config/device-tls.mtls.caddy.example" "$D/device-tls.caddy"; chmod 644 "$D/device-ca.pem" "$D/device-tls.caddy"
+    cp "$D/ca.crt" "$D/device-ca.pem"; cp "$ROOT/ingress/config/device-tls.mtls.caddy.example" "$D/device-tls.caddy"; chmod 644 "$D/device-ca.pem" "$D/device-tls.caddy"
     echo "게이트웨이에 켜려면: export DEVICE_TLS_CONF=$D/device-tls.caddy DEVICE_CA_FILE=$D/device-ca.pem  (그 뒤 gateway 를 다시 만든다: up.sh)";;
   *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2;;
 esac
