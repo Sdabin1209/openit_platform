@@ -9,7 +9,7 @@
 ## 결정
 - 제품은 **Envoy 공식 이미지(`envoyproxy/envoy`, digest 고정)** 다. 영역마다 설정만 다르다. **설정 생성기(`area-gateway/gen-area-gateway-config.py`)를 이미지 안에 넣고**(파이썬 + 계약 패키지는 요청의 dependency_sources 소스 트리에서 설치) 진입점이 시작할 때 마운트된 Exposure 선언에서 설정을 만들어 envoy 를 exec 한다. 영역마다 이미지가 같고 입력만 다르다(deploy 변경 요청 CR-area-gateway-config-generator 의 결정).
 - **이미지 입력(배포 입력, 영역 사이 계약이 아니다)**: `/etc/openit/exposure.json`(그 영역 Exposure, 계약 스키마로 검증; 어기거나 없으면 종료 코드 65/64 로 시작하지 않는다), `/certs/tls.crt`·`/certs/tls.key`, 환경 변수 `AREA_GATEWAY_UPSTREAM`(기본 127.0.0.1:8080)·`AREA_GATEWAY_INGRESS_PORT`(443)·`AREA_GATEWAY_EGRESS_PORT`(3128), `/tmp` tmpfs(읽기 전용 루트에서 만든 설정을 쓴다).
-- Exposure.routes 의 `max_body_bytes`(없으면 8MiB)로 Content-Length 가 넘으면 413 BoundaryError(INVALID_RECORD), `upstream_port` 로 경로별 상류(같은 네트워크 공간 loopback 포트). 한계: Content-Length 없는 청크 전송의 본문 상한은 세지 못한다(미해결).
+- Exposure.routes 의 `max_body_bytes`(없으면 8MiB)로 Content-Length 가 넘으면 413 BoundaryError(INVALID_RECORD), `upstream_port` 로 경로별 상류(같은 네트워크 공간 loopback 포트). Content-Length 가 없는 본문(청크 전송)의 상한은 **받는 앱이 지켜 413 을 낸다**(결정, 헤드 2026-11-04): 게이트웨이가 큰 업로드(패키지 tar 4GiB 등)를 버퍼링하지 않기 위함이고, RUNTIME R3.5 가 "앱에 닿기 전 거절해도 같다"고 하여 어느 쪽이 거절해도 출력이 같다. 따라서 게이트웨이는 Content-Length 로 앞에서 거절하는 것까지만 한다(앱 쪽 시험은 각 영역 몫).
 - 인증서는 파일 SDS(`watched_directory`)로 읽어 인증서 갱신(ADR 0060, `step ca renew`) 때 재시작·reload 없이 새 파일을 쓴다.
 - 허용 목록은 `:authority` 정확 일치(`<서비스>:443`), `external:backup` 은 `backup-store:443`, `external:web-push` 는 점 있는 공인 이름의 `:443` 정규식이다.
 - 이미지는 비루트(101), 읽기 전용 루트에서 돈다. 라벨은 `io.openit.service=area-gateway`.
