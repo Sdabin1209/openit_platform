@@ -49,7 +49,7 @@ def stack():
         (d / "certs").mkdir(); (d / "certs/tls.crt").write_text((d / "survey-service.crt").read_text()); (d / "certs/tls.key").write_text((d / "survey-service.key").read_text())
         for p in list(d.glob("*")) + list((d / "certs").glob("*")):
             if p.is_file(): p.chmod(0o644)
-        exposure = json.loads((ROOT.parent / "boundary-contracts/examples/Exposure.json").read_text()); exposure["egress"] = ["svc-x"]
+        exposure = json.loads((d / "boundary-src/examples/Exposure.json").read_text()); exposure["egress"] = ["svc-x"]
         (d / "exposure.json").write_text(json.dumps(exposure))
         util = "python:3.12-slim"
         for nm, tls in (("svc-x", True), ("svc-y", True)):
