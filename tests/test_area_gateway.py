@@ -1,11 +1,10 @@
-"""영역 게이트웨이(RUNTIME R1.1·R1.8·R6.2, CONVENTIONS 13절) 단독 시험: 생성기 + 실제 Envoy 이미지. Docker 필요.
+"""영역 게이트웨이(RUNTIME R1.1·R1.8·R6.2·R3.5, CONVENTIONS 13절) 단독 시험: 실제 이미지(진입점이 마운트된 Exposure 선언에서 설정을 만든다). Docker 필요.
  (1) 들어오는 쪽: 서비스 이름 인증서로 TLS 를 끝내고 영역 안 컴포넌트로 넘긴다 (2) 나가는 쪽: Exposure.egress 에 선언한 상대만 CONNECT 터널(TLS 끝까지 유지),
  선언 밖은 403 + BoundaryError(PERMISSION_DENIED, details.reason=EGRESS_DENIED) (3) 변이: egress 에서 상대를 빼면 같은 호출이 403 이 된다."""
 import json, pathlib, subprocess, sys, tempfile, time, uuid
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-GEN = ROOT / "scripts/gen-area-gateway-config.py"
 IMAGE = "platform-area-gateway:test"
 CURL = "curlimages/curl:8.10.1"
 
@@ -21,6 +20,15 @@ def have_docker():
 pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
 
 
+def start_gw(stack, name, exposure, alias=None, upstream="app:8080"):
+    """진입점 계약: /etc/openit/exposure.json + /certs + 환경 변수 AREA_GATEWAY_UPSTREAM. 설정은 이미지가 만든다."""
+    d, tag = stack["d"], stack["tag"]
+    (d / f"{name}.json").write_text(json.dumps(exposure))
+    stack["run"](f"{name}-{tag}", "--network-alias", alias or name, "--read-only", "--tmpfs", "/tmp", "-e", f"AREA_GATEWAY_UPSTREAM={upstream}",
+                 "-v", f"{d}/{name}.json:/etc/openit/exposure.json:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
+    time.sleep(4)
+
+
 @pytest.fixture(scope="module")
 def stack():
     tag = uuid.uuid4().hex[:8]; net = f"pgw-{tag}"; d = pathlib.Path(tempfile.mkdtemp(prefix="pgw-"))
@@ -30,7 +38,7 @@ def stack():
         names.append(name); sh("docker", "run", "-d", "--name", name, "--network", net, *args)
     try:
         subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), "/dev/stdin"], input=json.dumps(
-            {"source_dir": str(ROOT), "revision": "test", "versions": {"boundary": "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()}, "image_tag": IMAGE}),
+            {"source_dir": str(ROOT), "revision": "test", "versions": {"boundary": "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()}, "dependency_sources": {"boundary": str(ROOT.parent / "boundary-contracts")}, "image_tag": IMAGE}),
             text=True, capture_output=True, check=False)
         # 인증서: 이 영역 게이트웨이(서비스 이름 survey-service)와 허용 상대(svc-x), 허용 밖 상대(svc-y)
         for cn in ("survey-service", "svc-x", "svc-y"):
@@ -40,10 +48,6 @@ def stack():
             if p.is_file(): p.chmod(0o644)
         exposure = json.loads((ROOT.parent / "boundary-contracts/examples/Exposure.json").read_text()); exposure["egress"] = ["svc-x"]
         (d / "exposure.json").write_text(json.dumps(exposure))
-        def gen(path, exp):
-            r = sh(str(ROOT / ".venv/bin/python"), str(GEN), "--exposure", str(exp), "--upstream", "app:8080", "--sds-out", str(d / "sds.yaml"))
-            (d / path).write_text(r.stdout)
-        gen("envoy.yaml", d / "exposure.json")
         util = "python:3.12-slim"
         for nm, tls in (("svc-x", True), ("svc-y", True)):
             code = ("import http.server,ssl\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(b'from-" + nm + "')\n def log_message(s,*a): pass\n"
@@ -51,9 +55,9 @@ def stack():
             run(f"{nm}-{tag}", "--network-alias", nm, "-v", f"{d}/{nm}.crt:/c.crt:ro", "-v", f"{d}/{nm}.key:/c.key:ro", util, "python", "-c", code)
         run(f"app-{tag}", "--network-alias", "app", util, "python", "-c",
             "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()")
-        run(f"gw-{tag}", "--network-alias", "gw", "--read-only", "--tmpfs", "/tmp", "-v", f"{d}/envoy.yaml:/etc/envoy/envoy.yaml:ro", "-v", f"{d}/sds.yaml:/etc/envoy/sds.yaml:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
-        time.sleep(4)
-        yield {"net": net, "d": d, "tag": tag, "run": run, "gen": gen}
+        st = {"net": net, "d": d, "tag": tag, "run": run}
+        start_gw(st, "gw", exposure)
+        yield st
     finally:
         for n in names: sh("docker", "rm", "-f", n, check=False)
         sh("docker", "network", "rm", net, check=False)
@@ -92,13 +96,8 @@ def test_egress_undeclared_peer_is_403_boundary_error(stack):
 
 
 def test_mutation_removing_the_peer_from_egress_denies_it(stack):
-    d = stack["d"]
-    exposure = json.loads((d / "exposure.json").read_text()); exposure["egress"] = []
-    (d / "exposure2.json").write_text(json.dumps(exposure))
-    stack["gen"]("envoy2.yaml", d / "exposure2.json")
-    tag = stack["tag"]
-    stack["run"](f"gw2-{tag}", "--network-alias", "gw2", "--read-only", "--tmpfs", "/tmp", "-v", f"{d}/envoy2.yaml:/etc/envoy/envoy.yaml:ro", "-v", f"{d}/sds.yaml:/etc/envoy/sds.yaml:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
-    time.sleep(3)
+    exposure = json.loads((stack["d"] / "exposure.json").read_text()); exposure["egress"] = []
+    start_gw(stack, "gw2", exposure)
     out = sh("docker", "run", "--rm", "--network", inns(stack, "gw2"), CURL, "-sk", "--max-time", "8", "-x", "http://127.0.0.1:3128", "https://svc-x/", "-v", check=False).stderr
     assert "403" in out
 
@@ -109,15 +108,48 @@ def test_egress_listener_is_loopback_only_not_reachable_from_other_containers(st
     assert out.returncode != 0 and out.stdout == ""
 
 
-def test_route_upstreams_split_by_longest_path_prefix(stack):
-    # 영역 안 컴포넌트가 여럿일 때: 경로 접두사별 상류(가장 긴 접두사 우선), 나머지는 기본 상류. Exposure 스키마에는 경로별 상류 필드가 없어 배치가 준다
-    d, tag = stack["d"], stack["tag"]
-    util = "python:3.12-slim"
-    stack["run"](f"app2-{tag}", "--network-alias", "app2", util, "python", "-c",
-                 "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(('app2:' + s.path).encode())\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()")
-    r = sh(str(ROOT / ".venv/bin/python"), str(GEN), "--exposure", str(d / "exposure.json"), "--upstream", "app:8080", "--route-upstream", "/v1/other=app2:8080", "--sds-out", str(d / "sds.yaml"))
-    (d / "envoy3.yaml").write_text(r.stdout)
-    stack["run"](f"gw3-{tag}", "--network-alias", "gw3", "--read-only", "--tmpfs", "/tmp", "-v", f"{d}/envoy3.yaml:/etc/envoy/envoy.yaml:ro", "-v", f"{d}/sds.yaml:/etc/envoy/sds.yaml:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
+def test_body_limit_413_boundary_error_per_route_and_default_8mib(stack):
+    # R3.5(3.4.7): 경로의 max_body_bytes(없으면 8MiB)를 Content-Length 가 넘으면 앱에 닿기 전 413 + INVALID_RECORD
+    exposure = json.loads((stack["d"] / "exposure.json").read_text())
+    exposure["routes"] = [{"paths": ["/v1/small"], "methods": ["POST"], "auth": {"kind": "none"}, "max_body_bytes": 100},
+                          {"paths": ["/v1/big/*"], "auth": {"kind": "none"}, "max_body_bytes": 1000000}]
+    start_gw(stack, "gwlim", exposure)
+    def post(path, n):
+        # 본문은 표준 입력으로 보낸다(명령줄 길이 한도)
+        return subprocess.run(["docker", "run", "--rm", "-i", "--network", stack["net"], CURL, "-sk", "--max-time", "20", "-X", "POST", "-H", "Content-Type: application/octet-stream", "--data-binary", "@-", "-w", "\n%{http_code}", f"https://gwlim{path}"],
+                              input="x" * n, capture_output=True, text=True, check=False, timeout=60).stdout
+    body, _, code = post("/v1/small", 101).rpartition("\n")
+    assert code == "413"
+    err = json.loads(body)
+    assert err["code"] == "INVALID_RECORD" and err["details"] == {"max_body_bytes": 100} and err["retryable"] is False
+    assert post("/v1/small", 100).rpartition("\n")[2] != "413"   # 한도 안: 앱으로 간다(시험 앱이 POST 를 몰라 501 일 수 있다)
+    assert post("/v1/big/x", 500000).rpartition("\n")[2] != "413"                                                # 경로의 큰 상한 안
+    assert post("/v1/other", 8 * 1024 * 1024 + 1).rpartition("\n")[2] == "413"                                 # 선언 없는 경로는 8MiB
+
+
+def test_upstream_port_routes_to_a_loopback_component(stack):
+    # upstream_port(3.4.7): 영역 안 컴포넌트가 여럿일 때 경로별 상류 = 같은 네트워크 공간의 loopback 포트(여기서는 게이트웨이 컨테이너의 공간에 둔 두 번째 컴포넌트)
+    tag = stack["tag"]
+    exposure = json.loads((stack["d"] / "exposure.json").read_text())
+    exposure["routes"] = [{"paths": ["/v1/second/*"], "auth": {"kind": "none"}, "upstream_port": 9090}]
+    start_gw(stack, "gwport", exposure)
+    sh("docker", "run", "-d", "--name", f"comp2-{tag}", "--network", f"container:gwport-{tag}", "python:3.12-slim", "python", "-c",
+       "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(b'second')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('127.0.0.1',9090),H).serve_forever()")
     time.sleep(3)
-    assert curl(stack["net"], "https://gw3/v1/other/x") == "app2:/v1/other/x"
-    assert curl(stack["net"], "https://gw3/v1/sessions") == "from-app"
+    try:
+        assert curl(stack["net"], "https://gwport/v1/second/x") == "second"
+        assert curl(stack["net"], "https://gwport/v1/first") == "from-app"
+    finally:
+        sh("docker", "rm", "-f", f"comp2-{tag}", check=False)
+
+
+def test_invalid_exposure_declaration_does_not_start(stack):
+    # 선언이 계약을 어기면 시작하지 않는다(종료 코드 != 0, 사유가 표준 오류에)
+    d = stack["d"]; (d / "bad.json").write_text(json.dumps({"service": "x", "routes": [], "egress": ["BAD NAME"]}))
+    r = sh("docker", "run", "--rm", "--read-only", "--tmpfs", "/tmp", "-v", f"{d}/bad.json:/etc/openit/exposure.json:ro", "-v", f"{d}/certs:/certs:ro", IMAGE, check=False, timeout=60)
+    assert r.returncode != 0 and "계약" in r.stderr
+
+
+def test_missing_exposure_declaration_does_not_start(stack):
+    r = sh("docker", "run", "--rm", "--read-only", "--tmpfs", "/tmp", IMAGE, check=False, timeout=60)
+    assert r.returncode != 0

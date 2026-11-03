@@ -18,7 +18,7 @@ VAR = {"": ("area-gateway", "area-gateway"), "public-ingress": ("ingress", "publ
 v = req.get("variant") or ""
 if v not in VAR: sys.exit("build-image: 이 영역은 variant 를 모른다: " + v)
 if not (req.get("versions") or {}).get("boundary"): sys.exit("build-image: 이 영역이 쓰는 키가 요청에 없다: versions.boundary")
-for k, val in {"SRC": req["source_dir"], "REVISION": req["revision"], "BOUNDARY_TAG": req["versions"]["boundary"], "IMAGE_TAG": req["image_tag"], "CTX": VAR[v][0], "SERVICE": VAR[v][1]}.items():
+for k, val in {"SRC": req["source_dir"], "REVISION": req["revision"], "BOUNDARY_TAG": req["versions"]["boundary"], "IMAGE_TAG": req["image_tag"], "CTX": VAR[v][0], "SERVICE": VAR[v][1], "BOUNDARY_SRC": (req.get("dependency_sources") or {}).get("boundary", "")}.items():
     print(f"{k}={shlex.quote(val)}")
 PY
 ) || exit 1
@@ -28,7 +28,13 @@ eval "$VARS"
 ACTUAL="v$("$PYTHON" -c 'import importlib.metadata as m; print(m.version("boundary-contracts"))')"
 [ "$ACTUAL" = "$BOUNDARY_TAG" ] || die "요청 versions.boundary($BOUNDARY_TAG)와 이 영역 환경의 계약 패키지($ACTUAL)가 다르다. setup-env.sh 를 다시 실행한다"
 echo "build-image: $IMAGE_TAG (revision $REVISION, boundary $ACTUAL)" >&2
-"$DOCKER" build -q -t "$IMAGE_TAG" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" "$CTX" >&2
+CTXARGS=()
+if [ "$CTX" = area-gateway ]; then   # 설정 생성기가 계약 스키마로 선언을 검증한다: 계약 패키지는 요청의 소스 트리에서만 설치한다(빌드 중 이웃 리포·SSH 없음)
+  [ -d "$BOUNDARY_SRC" ] || die "이 이미지는 요청의 dependency_sources.boundary(계약 소스 트리)가 필요하다"
+  BA="v$(sed -n 's/^version = "\(.*\)"$/\1/p' "$BOUNDARY_SRC/pyproject.toml" | head -1)"; [ "$BA" = "$ACTUAL" ] || die "dependency_sources.boundary 의 실제 버전($BA)이 환경의 계약 패키지($ACTUAL)와 다르다"
+  CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC")
+fi
+"$DOCKER" build -q -t "$IMAGE_TAG" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" "${CTXARGS[@]}" "$CTX" >&2
 "$DOCKER" image inspect "$IMAGE_TAG" | "$PYTHON" -c '
 import json, sys
 from boundary_contracts import validator

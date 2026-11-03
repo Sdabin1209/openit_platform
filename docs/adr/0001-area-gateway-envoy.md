@@ -7,7 +7,9 @@
 서비스를 가진 영역마다 게이트웨이가 하나 있다. 들어오는 쪽은 서비스 이름 인증서로 TLS 를 끝내고 영역 안 컴포넌트로 넘긴다. 나가는 쪽은 영역 안 컴포넌트의 영역 밖 호출을 HTTP CONNECT 터널(RFC 9110 9.3.6)로 받아, 그 영역 `Exposure.egress` 에 선언한 상대에게만 열고 그 밖은 403 `PERMISSION_DENIED`(`details.reason=EGRESS_DENIED`)로 거절한다. TLS 는 호출 컴포넌트와 받는 영역 게이트웨이 사이에서 끝까지 유지되므로 터널은 TLS 를 풀지 않는다.
 
 ## 결정
-- 제품은 **Envoy 공식 이미지(`envoyproxy/envoy`, digest 고정)** 다. 영역마다 설정만 다르다: `scripts/gen-area-gateway-config.py` 가 그 영역의 Exposure 선언(계약 스키마로 검증)과 upstream 주소에서 설정을 만든다. 이미지에는 설정을 넣지 않는다(배치가 `/etc/envoy/envoy.yaml`, `sds.yaml`, `/certs` 로 준다).
+- 제품은 **Envoy 공식 이미지(`envoyproxy/envoy`, digest 고정)** 다. 영역마다 설정만 다르다. **설정 생성기(`area-gateway/gen-area-gateway-config.py`)를 이미지 안에 넣고**(파이썬 + 계약 패키지는 요청의 dependency_sources 소스 트리에서 설치) 진입점이 시작할 때 마운트된 Exposure 선언에서 설정을 만들어 envoy 를 exec 한다. 영역마다 이미지가 같고 입력만 다르다(deploy 변경 요청 CR-area-gateway-config-generator 의 결정).
+- **이미지 입력(배포 입력, 영역 사이 계약이 아니다)**: `/etc/openit/exposure.json`(그 영역 Exposure, 계약 스키마로 검증; 어기거나 없으면 종료 코드 65/64 로 시작하지 않는다), `/certs/tls.crt`·`/certs/tls.key`, 환경 변수 `AREA_GATEWAY_UPSTREAM`(기본 127.0.0.1:8080)·`AREA_GATEWAY_INGRESS_PORT`(443)·`AREA_GATEWAY_EGRESS_PORT`(3128), `/tmp` tmpfs(읽기 전용 루트에서 만든 설정을 쓴다).
+- Exposure.routes 의 `max_body_bytes`(없으면 8MiB)로 Content-Length 가 넘으면 413 BoundaryError(INVALID_RECORD), `upstream_port` 로 경로별 상류(같은 네트워크 공간 loopback 포트). 한계: Content-Length 없는 청크 전송의 본문 상한은 세지 못한다(미해결).
 - 인증서는 파일 SDS(`watched_directory`)로 읽어 인증서 갱신(ADR 0060, `step ca renew`) 때 재시작·reload 없이 새 파일을 쓴다.
 - 허용 목록은 `:authority` 정확 일치(`<서비스>:443`), `external:backup` 은 `backup-store:443`, `external:web-push` 는 점 있는 공인 이름의 `:443` 정규식이다.
 - 이미지는 비루트(101), 읽기 전용 루트에서 돈다. 라벨은 `io.openit.service=area-gateway`.
@@ -23,7 +25,7 @@
 
 ## 결과
 - 얻는 것: 한 제품으로 두 방향, 설정은 계약 선언에서 생성. 감수: Envoy 설정이 길고(생성기가 감춘다) 이미지가 크다(측정 안 함).
-- 들어오는 쪽 상류: 기본 상류 하나(`--upstream`)와 경로 접두사별 상류(`--route-upstream /접두사=host:port`, 가장 긴 접두사 우선)를 지원한다(단독 시험 있음). `Exposure` 스키마에는 경로별 상류 필드가 없어 배치가 준다 — 영역 안 컴포넌트가 여럿인 영역이 생기면 Exposure.routes 에 상류 필드를 넣는 변경 요청이 필요하다(미해결, 헤드에게 알림). 경로 표·인증은 platform 공개 입구의 몫이다. 영역 사이 호출은 공개 입구를 지나지 않는다(R3.15).
+- 들어오는 쪽 상류: 기본 상류(`AREA_GATEWAY_UPSTREAM`)와 Exposure 의 `upstream_port`(3.4.7)를 지원한다(단독 시험 있음). 경로 표·인증은 platform 공개 입구의 몫이다. 영역 사이 호출은 공개 입구를 지나지 않는다(R3.15).
 - 나가는 쪽 리스너는 `127.0.0.1:3128`(영역 컴포넌트와 같은 네트워크 공간의 loopback, `OPENIT_EGRESS_PROXY=http://127.0.0.1:3128`, RUNTIME R1.8). 다른 컨테이너는 닿지 못한다(시험).
 
 ## 되돌리는 조건
