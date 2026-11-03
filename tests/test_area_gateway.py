@@ -41,7 +41,8 @@ def stack():
         req.write_text(json.dumps(
 
             {"source_dir": str(ROOT), "revision": "abcdef1", "versions": {"boundary": "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()}, "dependency_sources": {"boundary": sh("bash", str(ROOT / "scripts/fetch-boundary-src.sh"), str(d / "boundary-src")).stdout.strip()}, "image_tag": IMAGE}))
-        subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], text=True, capture_output=True, check=True)
+        b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], text=True, capture_output=True, check=False)
+        assert b.returncode == 0, "이미지를 만들지 못했다:\n" + b.stderr[-1500:]
         # 인증서: 이 영역 게이트웨이(서비스 이름 survey-service)와 허용 상대(svc-x), 허용 밖 상대(svc-y)
         for cn in ("survey-service", "svc-x", "svc-y"):
             sh("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(d / f"{cn}.key"), "-out", str(d / f"{cn}.crt"), "-subj", f"/CN={cn}", "-addext", f"subjectAltName=DNS:{cn}", "-days", "2")
