@@ -5,16 +5,16 @@
 # 진짜 Keycloak·oauth2-proxy 로그인은 scripts/test-idp-smoke.sh 가 본다. (Docker 필요)
 set -uo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
+ING=platform-ingress:test-$$   # D22: 이미지 태그에 리포 이름 + 프로세스 접미사
 T=$(mktemp -d); export SECRETS_DIR=$T
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry keycloak oauth2-proxy || { echo "시험 PKI 를 만들지 못했다"; exit 1; }   # 게이트웨이는 상류를 https 로 부르므로 가짜 상류 앞에 TLS 를 붙인다(ADR 0060)
-printf '{"source_dir":"%s","revision":"abcdef1","versions":{"boundary":"v%s"},"variant":"public-ingress","dependency_sources":{"boundary":"%s"},"image_tag":"platform-ingress:test"}' "$ROOT" "$("$ROOT/.venv/bin/python" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')" "$(bash "$ROOT/scripts/fetch-boundary-src.sh" "$T/boundary-src")" > "$T/build-req.json"
+printf '{"source_dir":"%s","revision":"abcdef1","versions":{"boundary":"v%s"},"variant":"public-ingress","dependency_sources":{"boundary":"%s"},"image_tag":"%s"}' "$ROOT" "$("$ROOT/.venv/bin/python" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')" "$(bash "$ROOT/scripts/fetch-boundary-src.sh" "$T/boundary-src")" "$ING" > "$T/build-req.json"
 bash "$ROOT/scripts/build-image.sh" "$T/build-req.json" >/dev/null 2>"$T/build.err" || { tail -3 "$T/build.err"; echo "공개 입구 이미지를 만들지 못했다"; exit 1; }
 GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
 NET=gwauth-net-$$; CN=gwauth-csrf-$$; CF=gwauth-fakeauth-$$; CU=gwauth-upstream-$$
-cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$T"; }; trap cleanup EXIT
+cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$T"; docker rmi "$ING" >/dev/null 2>&1; }; trap cleanup EXIT
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
-ING=platform-ingress:test
 EXP="$ROOT/ingress/tests/exposures"
 ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 --tmpfs /data:uid=10001,gid=10001 --tmpfs /config:uid=10001,gid=10001 -v "$EXP:/etc/openit/exposures:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro"; }
 val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES --entrypoint sh "$ING" -c 'mkdir -p /tmp/openit && /opt/gw/bin/python /usr/local/bin/gen-ingress-routes.py /etc/openit/exposures > /tmp/openit/routes.caddy && caddy validate --config /etc/caddy/Caddyfile'; }

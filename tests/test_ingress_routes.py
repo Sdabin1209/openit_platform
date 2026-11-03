@@ -27,9 +27,20 @@ def test_denied_by_one_area_and_opened_by_another_is_served_by_the_opener():
 
 
 def test_same_public_path_opened_by_two_areas_refuses_to_start():
-    r = run(ex("a", "/readyz"), ex("b", "/readyz"))
-    assert r.returncode != 0 and "/readyz" in r.stderr
+    r = run(ex("a", "/v1/same"), ex("b", "/v1/same"))
+    assert r.returncode != 0 and "/v1/same" in r.stderr
 
 
 def test_mutation_different_paths_start_fine():
-    assert run(ex("a", "/readyz"), ex("b", "/v1/z")).returncode == 0
+    assert run(ex("a", "/v1/y"), ex("b", "/v1/z")).returncode == 0
+
+
+def test_area_health_and_metrics_paths_are_not_exported():
+    # 영역의 /healthz·/readyz·/metrics 는 영역 게이트웨이로만 닿는다: 두 영역이 같이 선언해도 충돌이 아니고 경로도 만들지 않는다
+    r = run(ex("a", "/readyz"), ex("b", "/readyz"), ex("a", "/metrics"), ex("b", "/healthz"))
+    assert r.returncode == 0 and "path /readyz" not in r.stdout and "path /metrics" not in r.stdout and "path /healthz" not in r.stdout
+
+
+def test_mutation_other_paths_of_the_same_service_are_exported():
+    r = run(ex("a", "/readyz"), ex("a", "/v1/ok"))
+    assert "path /v1/ok" in r.stdout

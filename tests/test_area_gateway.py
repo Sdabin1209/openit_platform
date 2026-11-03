@@ -5,7 +5,7 @@ import json, pathlib, subprocess, sys, tempfile, time, uuid
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-IMAGE = "platform-area-gateway:test"
+IMAGE = "platform-area-gateway:test-" + uuid.uuid4().hex[:8]   # D22: 이미지 태그에 리포 이름 + 임의 접미사(다른 세션과 충돌 방지)
 CURL = "curlimages/curl:8.10.1"
 
 

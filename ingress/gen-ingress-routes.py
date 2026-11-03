@@ -13,6 +13,7 @@ PERM = lambda msg, extra="": '{"pipeline_schema_version":"2.0","code":"PERMISSIO
 PENDING = PERM("account pending approval", ',"details":{"reason":"ACCOUNT_PENDING_APPROVAL"}')
 NOTFOUND = '{"pipeline_schema_version":"2.0","code":"NOT_FOUND","message":"not found","retryable":false}'
 TOO_LARGE = '{"pipeline_schema_version":"2.0","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":%d}}'
+OPERATIONAL = {"/healthz", "/readyz", "/metrics"}
 DEFAULT_MAX_BODY = 8 * 1024 * 1024
 
 
@@ -78,6 +79,8 @@ def gen(exposures):
             if kind == "denied":
                 continue   # 거부 선언은 경로를 만들지 않는다: 선언이 없는 경로는 아래 바닥 규칙(404)이다. 같은 경로를 다른 영역이 열었으면 그 선언이 서비스한다(HTTP.md I1)
             for p in r["paths"]:
+                if p in OPERATIONAL:
+                    continue   # 영역의 상태·지표 경로는 영역 게이트웨이로만 닿고 공개 입구에 열지 않는다(CONVENTIONS 78행, R5.1·R10.11). 입구 자기 /healthz·/readyz 는 Caddyfile 이 따로 둔다
                 atoms.setdefault((p, tuple(sorted(r.get("methods") or []))), []).append((e["service"], r))
     out = ["# 생성됨(platform ingress/gen-ingress-routes.py): 각 영역 Exposure 선언에서 만든다. 직접 고치지 않는다.", ""]
     n = 0
