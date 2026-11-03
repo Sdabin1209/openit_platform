@@ -3,8 +3,10 @@
 set -eu
 EXPOSURE=${AREA_GATEWAY_EXPOSURE:-/etc/openit/exposure.json}
 [ -r "$EXPOSURE" ] || { echo "area-gateway: Exposure 선언을 읽지 못했다: $EXPOSURE" >&2; exit 64; }
+# 들어오는 쪽은 인증서 폴더가 마운트되어 있을 때만 연다(입력에서 정해진다). 마운트가 없으면 나가는 쪽 전용(compose 밖 학습 서버 등): 인증서 없는 입구를 두지 않는다
+NOING=""; [ -d "${AREA_GATEWAY_CERT_DIR:-/certs}" ] || NOING="--no-ingress"
 /opt/gw/bin/python /usr/local/bin/gen-area-gateway-config.py --exposure "$EXPOSURE" \
   --upstream "${AREA_GATEWAY_UPSTREAM:-127.0.0.1:8080}" \
   --ingress-port "${AREA_GATEWAY_INGRESS_PORT:-443}" --egress-port "${AREA_GATEWAY_EGRESS_PORT:-3128}" \
-  --sds-out /tmp/openit-sds.yaml --sds-path /tmp/openit-sds.yaml > /tmp/openit-envoy.yaml || { echo "area-gateway: 설정을 만들지 못했다(선언이 계약을 어겼거나 입력이 틀렸다)" >&2; exit 65; }
+  $NOING --sds-out /tmp/openit-sds.yaml --sds-path /tmp/openit-sds.yaml > /tmp/openit-envoy.yaml || { echo "area-gateway: 설정을 만들지 못했다(선언이 계약을 어겼거나 입력이 틀렸다)" >&2; exit 65; }
 exec envoy -c /tmp/openit-envoy.yaml

@@ -37,9 +37,11 @@ def stack():
     def run(name, *args):
         names.append(name); sh("docker", "run", "-d", "--name", name, "--network", net, *args)
     try:
-        subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), "/dev/stdin"], input=json.dumps(
-            {"source_dir": str(ROOT), "revision": "test", "versions": {"boundary": "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()}, "dependency_sources": {"boundary": str(ROOT.parent / "boundary-contracts")}, "image_tag": IMAGE}),
-            text=True, capture_output=True, check=False)
+        req = d / "build-request.json"   # build-image.sh 는 요청 JSON 파일 경로를 받는다
+        req.write_text(json.dumps(
+
+            {"source_dir": str(ROOT), "revision": "abcdef1", "versions": {"boundary": "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()}, "dependency_sources": {"boundary": str(ROOT.parent / "boundary-contracts")}, "image_tag": IMAGE}))
+        subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], text=True, capture_output=True, check=True)
         # 인증서: 이 영역 게이트웨이(서비스 이름 survey-service)와 허용 상대(svc-x), 허용 밖 상대(svc-y)
         for cn in ("survey-service", "svc-x", "svc-y"):
             sh("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(d / f"{cn}.key"), "-out", str(d / f"{cn}.crt"), "-subj", f"/CN={cn}", "-addext", f"subjectAltName=DNS:{cn}", "-days", "2")
@@ -153,3 +155,19 @@ def test_invalid_exposure_declaration_does_not_start(stack):
 def test_missing_exposure_declaration_does_not_start(stack):
     r = sh("docker", "run", "--rm", "--read-only", "--tmpfs", "/tmp", IMAGE, check=False, timeout=60)
     assert r.returncode != 0
+
+
+def test_egress_only_when_certs_not_mounted_opens_no_ingress_listener(stack):
+    # compose 밖(학습 서버)의 게이트웨이는 나가는 쪽만 쓴다: /certs 마운트가 없으면 들어오는 listener 를 열지 않는다(인증서 없는 입구 금지). 결정은 입력(마운트)에서 나온다
+    exposure = json.loads((stack["d"] / "exposure.json").read_text())
+    (stack["d"] / "eo.json").write_text(json.dumps(exposure))
+    stack["run"](f"eo-{stack['tag']}", "--network-alias", "eo", "--read-only", "--tmpfs", "/tmp", "-e", "AREA_GATEWAY_UPSTREAM=app:8080",
+                 "-v", f"{stack['d']}/eo.json:/etc/openit/exposure.json:ro", IMAGE)
+    time.sleep(4)
+    # 들어오는 쪽 없음: 443 연결이 거절된다(listener 가 없다)
+    r = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "--max-time", "4", "https://eo/", check=False)
+    assert r.returncode != 0 and r.stdout == ""
+    # 나가는 쪽은 그대로 동작한다
+    assert curl(inns(stack, "eo"), "-x", "http://127.0.0.1:3128", "https://svc-x/") == "from-svc-x"
+    # 변이: 같은 선언에 /certs 를 마운트하면 같은 호출이 응답한다(위 단언이 마운트 유무 때문임을 보인다)
+    assert curl(stack["net"], "https://gw/") == "from-app"

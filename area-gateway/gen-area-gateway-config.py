@@ -57,7 +57,7 @@ def ingress_routes(exposure, route_upstreams):
     return routes
 
 
-def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstreams=None, sds_path="/etc/envoy/sds.yaml"):
+def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstreams=None, sds_path="/etc/envoy/sds.yaml", ingress=True):
     """route_upstreams: {경로 접두사: host:port}. 영역 안 컴포넌트가 여럿일 때 경로별 상류(가장 긴 접두사 우선). Exposure 스키마에는 경로별 상류 필드가 없어 배치가 준다(변경 요청 후보)."""
     route_upstreams = route_upstreams or {}
     exact, public = allowed_authorities(exposure.get("egress") or [])
@@ -110,6 +110,9 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
                     "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig", "dns_cache_config": dfp_cache}}}]},
     }
     sds = {"resources": [{"@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret", "name": "tls", "tls_certificate": {"certificate_chain": {"filename": cert}, "private_key": {"filename": key}}}]}
+    if not ingress:   # 나가는 쪽 전용: 인증서가 없는 들어오는 입구를 두지 않는다(쓰지 않는 입구 금지). 들어오는 listener·SDS 를 뺀다
+        cfg["static_resources"]["listeners"] = [l for l in cfg["static_resources"]["listeners"] if l["name"] != "ingress"]
+        sds = None
     return cfg, sds
 
 
@@ -120,6 +123,7 @@ def main(argv):
     ap.add_argument("--ingress-port", type=int, default=443); ap.add_argument("--egress-port", type=int, default=3128)
     ap.add_argument("--route-upstream", action="append", default=[], metavar="PREFIX=host:port", help="경로 접두사별 상류(영역 안 컴포넌트가 여럿일 때). 여러 번 줄 수 있다")
     ap.add_argument("--sds-path", default="/etc/envoy/sds.yaml", help="Envoy 가 SDS 파일을 읽는 경로(설정에 들어간다)")
+    ap.add_argument("--no-ingress", action="store_true", help="들어오는 쪽 listener 를 열지 않는다(나가는 쪽 전용). entrypoint 가 인증서 폴더(/certs)가 마운트되지 않았을 때 준다")
     ap.add_argument("--sds-out", help="SDS 파일을 이 경로에 쓴다(기본: 표준 출력에 설정만)")
     a = ap.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", a.upstream):
@@ -135,8 +139,8 @@ def main(argv):
         if not pre.startswith("/") or not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", hp):
             sys.exit("--route-upstream 은 /접두사=host:port 여야 한다: " + x)
         ru[pre] = hp
-    cfg, sds = build(exposure, a.upstream, a.cert, a.key, a.ingress_port, a.egress_port, ru, a.sds_path)
-    if a.sds_out:
+    cfg, sds = build(exposure, a.upstream, a.cert, a.key, a.ingress_port, a.egress_port, ru, a.sds_path, ingress=not a.no_ingress)
+    if a.sds_out and sds:
         json.dump(sds, open(a.sds_out, "w"), indent=1)
     json.dump(cfg, sys.stdout, indent=1, ensure_ascii=False)
     print()
