@@ -10,7 +10,8 @@ ARG COMMIT=unknown
 ARG BOUNDARY_TAG=unknown
 ARG EXPOSURE_JSON
 COPY --from=entry /identity-entry /identity-entry
-COPY --from=boundary_contracts schemas/IdentityProxyEnv.schema.json schemas/CommonEnv.schema.json /etc/openit/schemas/
+COPY --from=boundary_contracts schemas/IdentityProxyEnv.schema.json /etc/openit/schemas/
+COPY --from=boundary_contracts schemas/CommonEnv.schema.json /etc/openit/schemas/
 # io.openit.exposure: 이 서비스의 노출 선언(계약 Exposure, 정본 identity/exposure-identity-proxy.json). build-image.sh 가 계약 스키마로 검증해 build arg 로 준다
 LABEL io.openit.exposure="${EXPOSURE_JSON}" io.openit.service="identity-proxy" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
 USER 65532:65532
