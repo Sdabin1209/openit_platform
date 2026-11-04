@@ -20,7 +20,7 @@ ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-
 val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) "$ING" validate; }   # 이미지의 validate 부명령: 진입점과 같은 준비(환경 검증·경로 표·기기 조각) 뒤 caddy validate
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 hn() { docker run --rm --entrypoint /opt/gw/bin/python "$ING" /usr/local/bin/gen-host-names.py "$1"; }
-export ING; export -f hn
+export ING SECRETS_GID; export -f hn
 ok "GATEWAY_HOSTS 의 쉼표 뒤 공백이 있든 없든 Caddy 사이트 목록으로 정규화된다(계약은 공백을 선택으로 둔다)" bash -c '[ "$(docker run --rm --entrypoint /opt/gw/bin/python "$ING" /usr/local/bin/gen-host-names.py --sites "a:8443,b:8443 , c")" = "a:8443, b:8443, c" ]'
 ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 뗀다, 중복 제거)" bash -c '[ "$(hn "kiosk.example.internal:8443, 10.0.0.5:443, 10.0.0.5:8443")" = "\"kiosk.example.internal\", \"10.0.0.5\"" ]'
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c '! hn "*.x:8443" >/dev/null 2>&1 && ! hn "a\"b:8443" >/dev/null 2>&1'
@@ -31,7 +31,7 @@ OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-
 ok "출력에 비밀 값이 없다" bash -c '! grep -qE "[0-9a-f]{40}" <<<"$1"' _ "$OUT"
 ok "정적 계정 파일·basic_auth 조각은 만들지 않는다(U82: 사람 인증은 OIDC)" bash -c '[ ! -e "$1/gateway-accounts.caddy" ] && ! grep -v "^[[:space:]]*#" "$2/ingress/config/Caddyfile" "$2/ingress/config/gateway-auth.caddy" | grep -q "basic_auth"' _ "$T" "$ROOT"
 ok "Caddyfile + 인증 조각 + 기기 조각이 caddy validate 통과(기기 5대)" val
-gd() { docker run --rm --entrypoint /opt/gw/bin/python -v "$1:/d:ro" "$ING" /usr/local/bin/gen-devices.py /d; }
+gd() { docker run --rm --group-add "$SECRETS_GID" --entrypoint /opt/gw/bin/python -v "$1:/d:ro" "$ING" /usr/local/bin/gen-devices.py /d; }
 export -f gd
 ok "기기 토큰 폴더(기기마다 파일 하나)에서 조각이 만들어진다: 토큰 5개" bash -c '[ "$(gd "$1/tokens/devices" 2>/dev/null | grep -o Bearer | wc -l)" = 5 ]' _ "$T"
 mkdir -p "$T/dev4"; cp "$T"/tokens/devices/e2e "$T"/tokens/devices/e2e-a "$T"/tokens/devices/e2e-b "$T"/tokens/devices/e2e-c "$T/dev4/"
