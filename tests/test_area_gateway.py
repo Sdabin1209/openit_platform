@@ -173,3 +173,17 @@ def test_egress_only_when_certs_not_mounted_opens_no_ingress_listener(stack):
     assert curl(inns(stack, "eo"), "-x", "http://127.0.0.1:3128", "https://svc-x/") == "from-svc-x"
     # 변이: 같은 선언에 /certs 를 마운트하면 같은 호출이 응답한다(위 단언이 마운트 유무 때문임을 보인다)
     assert curl(stack["net"], "https://gw/") == "from-app"
+
+
+def test_healthcheck_is_healthy_and_turns_unhealthy_when_the_gateway_stops_answering(stack):
+    # 이미지 HEALTHCHECK(출구·입구 listener 가 TCP 를 받는다): healthy. 변이: 프로세스를 멈추면(pause) unhealthy
+    c = f"gw-{stack['tag']}"
+    def status(): return sh("docker", "inspect", "-f", "{{.State.Health.Status}}", c, check=False).stdout.strip()
+    end = time.time() + 90
+    while time.time() < end and status() != "healthy": time.sleep(2)   # 준비 확인: 건강 확인 자체가 신호다
+    assert status() == "healthy"
+    sh("docker", "pause", c)
+    end = time.time() + 90
+    while time.time() < end and status() != "unhealthy": time.sleep(3)
+    assert status() == "unhealthy"
+    sh("docker", "unpause", c)

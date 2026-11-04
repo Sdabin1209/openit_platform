@@ -38,6 +38,13 @@ def test_monitoring_substitutes_the_contract_inputs_into_the_generated_config(im
     assert r.returncode == 0 and [int(x) > 0 for x in r.stdout.split()] == [True, True], r.stdout + r.stderr
 
 
+def test_monitoring_role_comes_from_the_env_and_a_bad_or_missing_role_is_refused(imgs):
+    r = rc(imgs["monitoring"]); assert r.returncode == 64 and "MONITORING_ROLE" in r.stderr   # 역할이 없으면 시작하지 않는다
+    assert rc(imgs["monitoring"], env=["MONITORING_ROLE=bogus"]).returncode == 64          # 스키마 enum 위반
+    r = rc(imgs["monitoring"], "health", env=["MONITORING_ROLE=json"])
+    assert r.returncode == 1 and "MONITORING_ROLE" not in r.stderr   # 변이: 맞는 역할이면 역할 때문에 거절하지 않는다(상태 경로에 아무도 없어 건강 확인만 실패한다)
+
+
 def test_monitoring_rejects_a_name_outside_the_schema(imgs):
     assert rc(imgs["monitoring"], "check", env=["MONITORING_UNKNOWN=1"]).returncode == 64
 
@@ -48,8 +55,13 @@ def test_backup_store_rejects_a_bad_port(imgs):
 
 
 def test_step_ca_rejects_a_bad_port_and_a_relative_password_path(imgs):
-    assert rc(imgs["step-ca"], "serve", env=["STEP_CA_PORT=0"]).returncode == 64
-    assert rc(imgs["step-ca"], "serve", env=["STEP_CA_PASSWORD_FILE=pw"]).returncode == 64
+    assert rc(imgs["step-ca"], env=["STEP_CA_PORT=0"]).returncode == 64
+    assert rc(imgs["step-ca"], env=["STEP_CA_PASSWORD_FILE=pw"]).returncode == 64
+    # 역할은 STEP_ROLE 로 고른다: 모르는 값은 거절, cert·token 은 필요한 이름이 없으면 거절
+    assert rc(imgs["step-ca"], env=["STEP_ROLE=bogus"]).returncode == 64
+    r = rc(imgs["step-ca"], env=["STEP_ROLE=cert"]); assert r.returncode == 64 and "STEP_CERT_NAME" in r.stderr
+    r = rc(imgs["step-ca"], env=["STEP_ROLE=token"]); assert r.returncode == 64 and "STEP_TOKEN_NAMES" in r.stderr
+    assert rc(imgs["step-ca"], env=["STEP_ROLE=cert", "STEP_CERT_NAME=Bad_Name"]).returncode == 64   # 서비스 이름 형식
 
 
 def test_identity_images_reject_a_bad_public_url_and_report_missing_secret_files_by_name(imgs):

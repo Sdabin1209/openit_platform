@@ -1,6 +1,6 @@
 """백업 저장소(RUNTIME R10.1, ADR 0011) 시험: 실제 restic 클라이언트(잠금된 restic 이미지)로 백업·복구 왕복, 다른 영역 자격으로 남의 경로 접근 거부,
 보존 정리(forget --prune)가 성공, 변이(--private-repos 를 빼면 남의 경로가 열린다 = 시험이 막는다는 증거). Docker 필요."""
-import pathlib, pytest
+import pathlib, time, pytest
 from ops_common import ROOT, Stack, build, have_docker, lock, sh, make_ca
 
 pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
@@ -132,3 +132,17 @@ def test_refuses_to_start_insecure(st, kw, why):
     if kw.get("tls", True): args += ["-v", f"{st.d}/tlsdir:/run/tls:ro"]
     r = sh("docker", "run", "--rm", *args, IMAGE, check=False)
     assert r.returncode == 2, why + " " + r.stderr[-200:]
+
+
+def test_healthcheck_is_healthy_and_turns_unhealthy_when_paused(st):
+    # 이미지 HEALTHCHECK(저장소 포트가 TCP 를 받는다). 변이: 멈추면(pause) unhealthy
+    c = serve(st, "hc")
+    def status(): return sh("docker", "inspect", "-f", "{{.State.Health.Status}}", c, check=False).stdout.strip()
+    end = time.time() + 90
+    while time.time() < end and status() != "healthy": time.sleep(2)
+    assert status() == "healthy"
+    sh("docker", "pause", c)
+    end = time.time() + 90
+    while time.time() < end and status() != "unhealthy": time.sleep(3)
+    assert status() == "unhealthy"
+    sh("docker", "unpause", c)

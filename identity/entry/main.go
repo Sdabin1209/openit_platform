@@ -8,10 +8,13 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"openit/platform/common/envcheck"
 )
@@ -171,9 +174,33 @@ func main() {
 		keycloak()
 	case "proxy":
 		proxy()
+	case "health":
+		health(os.Args[2:])
 	case "users":
 		usersJob(os.Args[2:])
 	default:
 		die(64, "알 수 없는 부명령: %s", os.Args[1])
+	}
+}
+
+// health: 이미지 HEALTHCHECK(Docker 표준). keycloak 은 관리 포트의 준비 경로(UP), proxy 는 oauth2-proxy 의 /ping. 평문은 루프백뿐이다(R1.1).
+func health(args []string) {
+	var u, want string
+	switch {
+	case len(args) == 1 && args[0] == "keycloak":
+		u, want = "http://127.0.0.1:9000/auth/health/ready", `"status": "UP"`
+	case len(args) == 1 && args[0] == "proxy":
+		u, want = "http://127.0.0.1:4180/ping", ""
+	default:
+		die(64, "사용: identity-entry health keycloak|proxy")
+	}
+	c := &http.Client{Timeout: 4 * time.Second}
+	resp, err := c.Get(u)
+	if err != nil || resp.StatusCode != 200 {
+		os.Exit(1)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if want != "" && !strings.Contains(string(b), want) {
+		os.Exit(1)
 	}
 }

@@ -7,12 +7,24 @@ set -eu
 ENVOUT=$(envcheck /etc/openit/schemas/MonitoringEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
 eval "$ENVOUT"
 # 설정 틀(이미지 안 /etc/openit/monitoring)의 두 자리(@TARGETS_DIR@, @ROOT_CA@)를 입력(MONITORING_TARGETS_DIR, MONITORING_ROOT_CA)으로 채워 /tmp 에 둔다: 배치는 이미지 안 설정 경로를 알 필요가 없다
-I=/etc/openit/monitoring; C=/tmp/openit-monitoring; role=${1:-prometheus}; [ $# -eq 0 ] || shift
+I=/etc/openit/monitoring; C=/tmp/openit-monitoring
+# 역할은 계약 MonitoringEnv.MONITORING_ROLE 로 고른다(3.4.17: deploy 는 이미지 부명령을 모른다). 없으면 시작하지 않는다(종료 64). 첫 인자 health(HEALTHCHECK)·check(설정 점검)만 인자로 받는다.
+role=${MONITORING_ROLE:-}
+case "${1:-}" in health|check) mode=$1; shift;; *) mode=run;; esac
+[ "$mode" = check ] || [ -n "$role" ] || { echo "monitoring: MONITORING_ROLE 이 없다(prometheus|alertmanager|blackbox|json|node)" >&2; exit 64; }
 mkdir -p "$C"
 # 틀 파일(.yml.tmpl)은 @자리표시@ 때문에 YAML 이 아니다(그래서 .yml 이 아닌 이름): 채운 결과만 .yml 로 둔다
 for f in prometheus blackbox json-exporter; do sed -e "s|@TARGETS_DIR@|$MONITORING_TARGETS_DIR|g" -e "s|@ROOT_CA@|$MONITORING_ROOT_CA|g" "$I/$f.yml.tmpl" > "$C/$f.yml"; done
 cp "$I/alertmanager.yml" "$C/alertmanager.yml"
 ln -sfn "$I/rules" "$C/rules"
+if [ "$mode" = health ]; then   # 이미지 HEALTHCHECK: 역할의 HTTP 상태 경로가 200 이면 건강하다(busybox wget). 시간 초과 3초
+  case "$role" in
+    prometheus) u=http://127.0.0.1:9090/-/healthy;; alertmanager) u=http://127.0.0.1:9093/-/healthy;; blackbox) u=http://127.0.0.1:9115/-/healthy;; json) u=http://127.0.0.1:7979/;; node) u=http://127.0.0.1:9100/;;
+    *) exit 1;;
+  esac
+  exec wget -q -T 3 -O /dev/null "$u"
+fi
+[ "$mode" != check ] || role=check
 case "$role" in
   prometheus)   exec prometheus --config.file="$C/prometheus.yml" --storage.tsdb.path=/prometheus --storage.tsdb.retention.time="$PROMETHEUS_RETENTION" --web.listen-address=:9090 "$@" ;;   # 15d: Prometheus 기본값(측정 안 함)
   alertmanager) exec alertmanager --config.file="$C/alertmanager.yml" --storage.path=/alertmanager --web.listen-address=:9093 "$@" ;;
@@ -21,5 +33,5 @@ case "$role" in
   node)         exec node_exporter --path.rootfs="$MONITORING_NODE_HOST_ROOT" --collector.disable-defaults --collector.filesystem --collector.timex --collector.textfile --collector.textfile.directory="$MONITORING_NODE_TEXTFILE_DIR" --web.listen-address=:9100 "$@" ;;   # 필요한 수집기만(최소 권한)
   check)
     promtool check config "$C/prometheus.yml" && promtool check rules "$C/rules/openit.yml" && amtool check-config "$C/alertmanager.yml" && blackbox_exporter --config.check --config.file="$C/blackbox.yml" ;;
-  *) echo "알 수 없는 역할: $role (prometheus|alertmanager|blackbox|json|node|check)" >&2; exit 2 ;;
+  *) echo "monitoring: 알 수 없는 역할: $role" >&2; exit 64 ;;
 esac

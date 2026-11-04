@@ -53,3 +53,11 @@ internal 모드의 공개 입구는 자기 사설 CA 의 루트 인증서(공개
 | public-ingress | `gateway-backup` / `gateway-restore` | `/data`(gateway-data) 를 백업 저장소로 백업 / 되돌림 | - | gateway-data |
 | step-ca | `pki-backup` / `pki-restore` | `$STEP_CA_HOME`(pki-ca) 를 백업 / 되돌림. 저장소 인증서는 밖에서 준 `/etc/openit/pki/root_ca.crt` 로 검증 | - | pki-ca |
 백업·복구 잡: 입력은 CommonEnv(`OPENIT_BACKUP_URL`, `OPENIT_BACKUP_CREDENTIALS_FILE`, `OPENIT_BACKUP_REPO_PASSWORD_FILE`)와 잡의 `env` 목록. 결과는 표준 출력 마지막 줄 BackupJobResult, 종료 코드 0 ok / 75 재시도 가능 / 1 실패. 스냅숏에 태그(`gateway-data`, `pki-ca`)를 붙여 같은 저장소를 나눠 쓴다. 백업 저장소가 platform 안이라 영역 안 통신이다(영역 게이트웨이 출구를 거치지 않는다). 한계: 실행 중인 서비스의 폴더를 파일 단위로 복사한다(스냅숏 도중 쓰기는 다음 스냅숏에 들어간다).
+
+
+## 역할은 Env 로, 상태 확인은 이미지가 (계약 3.4.17, CONVENTIONS 13절)
+deploy 는 이미지 부명령·`command`·`entrypoint`·`healthcheck`·`user` 를 쓰지 않는다. 이미지가 자기 실행 명령, `HEALTHCHECK`, `USER` 를 갖는다.
+- monitoring: 역할은 `MONITORING_ROLE`(prometheus|alertmanager|blackbox|json|node), 없거나 모르는 값이면 종료 64. HEALTHCHECK = 역할의 HTTP 상태 경로(prometheus·alertmanager·blackbox `/-/healthy`, json·node `/`).
+- step-ca: 역할은 `STEP_ROLE`(serve|root|token|cert, 기본 serve). cert 는 `STEP_CERT_NAME`, token 은 `STEP_TOKEN_NAMES`(공백 구분)를 읽고 없으면 종료 64. cert 의 키 파일은 0640, 그룹 `STEP_CERT_GID`(기본 10100: 이미지의 step 사용자가 이 그룹 구성원), 인증서는 0644 — 갱신 데몬이 파일을 바꾼 뒤 `--exec` 로 다시 맞춘다(바꾼 직후 잠깐은 키가 0600 일 수 있다). 다른 gid 는 deploy 의 `group_add` 로 보조 그룹을 받는다. HEALTHCHECK = serve: CA 응답(`step ca health`), cert: 만료를 포함한 검증, root: 루트 파일이 있음, token: 이름마다 토큰 파일이 있음.
+- area-gateway: 출구(loopback)·들어오는 포트가 TCP 를 받는지. backup-store: 저장소 포트가 TCP 를 받는지. public-ingress: 평문 루프백 `/healthz` 200 + `{"status":"ok"}`. identity: 관리 포트의 `/auth/health/ready` UP. identity-proxy: `/ping`. identity-db: 선언 계정으로 TLS 접속(앞 절).
+- 간격·재시도·시작 유예 값은 측정하지 않은 값이다(Dockerfile 주석).

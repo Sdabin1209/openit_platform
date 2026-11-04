@@ -26,7 +26,7 @@ class W:
         sh("docker", "stop", self.c)
         self.patch_claims()
         sh("docker", "start", self.c); self.wait_healthy(self.c)
-        sh("docker", "run", "--rm", *HARD[:5], "-v", f"{self.ca}:/home/step:ro", "-v", f"{self.root}:/out", IMAGE, "root")
+        sh("docker", "run", "--rm", *HARD[:5], "-v", f"{self.ca}:/home/step:ro", "-v", f"{self.root}:/out", "-e", "STEP_ROLE=root", IMAGE)
 
     def patch_claims(self):
         out = sh("docker", "run", "--rm", "-v", f"{self.ca}:/home/step", "--entrypoint", "cat", IMAGE, "/home/step/config/ca.json").stdout
@@ -43,18 +43,23 @@ class W:
 
     def token(self):
         sh("docker", "run", "--rm", "--network", self.s.net, *HARD[:5], "--tmpfs", "/tmp", "-v", f"{self.tok}:/tokens", "-v", f"{self.root}:/etc/openit/pki:ro",
-           "-v", f"{self.s.d}/pw:/run/secrets/step-ca-password:ro", IMAGE, "token", NAME, "other-name")
+           "-v", f"{self.s.d}/pw:/run/secrets/step-ca-password:ro", "-e", "STEP_ROLE=token", "-e", f"STEP_TOKEN_NAMES={NAME} other-name", IMAGE)
 
     def cert(self, name, env=(), image=IMAGE):
-        e = []
+        e = ["-e", "STEP_ROLE=cert", "-e", f"STEP_CERT_NAME={NAME}"]   # 역할은 계약 Env 로 고른다(부명령 없음)
         for k in env: e += ["-e", k]
-        return self.s.run(name, *HARD[:5], "--tmpfs", "/tmp", *e, "-v", f"{self.certs}:/certs", "-v", f"{self.root}:/etc/openit/pki:ro", "-v", f"{self.tok}:/tokens:ro", image, "cert", NAME)
+        return self.s.run(name, *HARD[:5], "--tmpfs", "/tmp", *e, "-v", f"{self.certs}:/certs", "-v", f"{self.root}:/etc/openit/pki:ro", "-v", f"{self.tok}:/tokens:ro", image)
 
     def inspect(self, field):
         r = sh("docker", "run", "--rm", "-v", f"{self.certs}:/certs:ro", "--entrypoint", "step", IMAGE, "certificate", "inspect", "/certs/tls.crt", "--format", "json", check=False)
         if r.returncode: return None
         j = json.loads(r.stdout)
         return {"serial": j["serial_number"], "sans": j.get("names"), "na": j["validity"]["end"]}[field]
+
+    def keystat(self):
+        k = sh("docker", "run", "--rm", "-v", f"{self.certs}:/certs:ro", "--entrypoint", "stat", IMAGE, "-c", "%a %g", "/certs/tls.key", check=False).stdout.split()
+        c = sh("docker", "run", "--rm", "-v", f"{self.certs}:/certs:ro", "--entrypoint", "stat", IMAGE, "-c", "%a", "/certs/tls.crt", check=False).stdout.split()
+        return (k[0], k[1], c[0]) if len(k) == 2 and c else None
 
     def verifies(self):
         return sh("docker", "run", "--rm", "-v", f"{self.certs}:/certs:ro", "-v", f"{self.root}:/pki:ro", "--entrypoint", "step", IMAGE, "certificate", "verify", "/certs/tls.crt", "--roots", "/pki/root_ca.crt", check=False).returncode == 0
@@ -92,10 +97,13 @@ def test_issue_renew_ca_down_and_reissue_after_expiry(w):
     w.wait(lambda: w.inspect("serial"), 30, "첫 발급")
     assert w.verifies()
     assert NAME in w.inspect("sans")
+    w.wait(lambda: w.keystat() == ("640", "10100", "644"), 10, "키 0640 그룹 10100, 인증서 0644")   # 계약 StepCaEnv.STEP_CERT_GID 기본값
     s0 = w.inspect("serial")
     # (2) 갱신: 수명 40초, 남은 30초에 갱신 -> serial 이 바뀐다
     w.wait(lambda: w.inspect("serial") != s0, 45, "갱신으로 serial 변경")
     assert w.verifies()
+    w.wait(lambda: w.keystat() == ("640", "10100", "644"), 10, "갱신 뒤에도 키 0640 그룹 10100")   # 갱신 데몬이 파일을 바꾼 뒤 --exec 로 모드를 다시 맞춘다
+    w.wait_healthy(cert, 60)   # 인증서 역할의 HEALTHCHECK: 만료를 포함한 검증
     # (3) R3.11: 인증기관을 멈춘다. 발급된 인증서는 유효한 동안 그대로이고 인증서 컨테이너는 죽지 않는다
     sh("docker", "stop", w.c)
     s1 = w.inspect("serial")
@@ -123,7 +131,7 @@ def test_mutation_without_renew_daemon_serial_stays(w):
     sh("docker", "run", "--rm", "-v", f"{w.certs}:/certs", "--user", "0", "--entrypoint", "sh", IMAGE, "-c", "rm -f /certs/tls.*")
     w.token()
     c = w.s.run("mut", *HARD[:5], "--tmpfs", "/tmp", *sum((["-e", e] for e in ENV), []), "-v", f"{w.certs}:/certs", "-v", f"{w.root}:/etc/openit/pki:ro", "-v", f"{w.tok}:/tokens:ro",
-                "-v", f"{w.s.d}/mut.sh:/m.sh:ro", "--entrypoint", "/m.sh", IMAGE, "cert", NAME)
+                "-v", f"{w.s.d}/mut.sh:/m.sh:ro", "--entrypoint", "/m.sh", "-e", "STEP_ROLE=cert", "-e", f"STEP_CERT_NAME={NAME}", IMAGE)
     try:
         w.wait(lambda: w.inspect("serial"), 30, "첫 발급")
     except AssertionError:
@@ -132,3 +140,8 @@ def test_mutation_without_renew_daemon_serial_stays(w):
     time.sleep(50)
     assert w.inspect("serial") == s0, "갱신 데몬이 없는데 serial 이 바뀌었다(시험이 갱신을 잡지 못한다)"
     assert not w.verifies(), "40초 수명이 만료돼야 한다"
+    for _ in range(60):   # 변이의 HEALTHCHECK: 만료된 인증서면 unhealthy
+        if sh("docker", "inspect", "-f", "{{.State.Health.Status}}", c, check=False).stdout.strip() == "unhealthy": break
+        time.sleep(3)
+    else:
+        raise AssertionError("만료된 인증서 컨테이너가 unhealthy 가 되지 않았다")

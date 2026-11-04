@@ -37,5 +37,7 @@ COPY selfcheck-unauth.sh /usr/local/bin/selfcheck-unauth
 # 상태 폴더는 Docker 표준 VOLUME 으로 선언한다: /data 에 internal 모드의 사설 CA(루트가 바뀌면 신뢰하는 쪽이 모두 깨진다)와 인증서가 남는다, /config 는 Caddy 자동 설정
 RUN mkdir -p /data /config && chown 10001:10001 /data /config
 VOLUME ["/data", "/config"]
+# 건강 확인(Docker 표준 HEALTHCHECK): 공개 입구 자신의 /healthz(R5.1). 간격·재시도는 측정하지 않은 값이다
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 CMD ["/usr/local/bin/ingress-entrypoint.sh", "health"]
 USER 10001
 ENTRYPOINT ["/usr/local/bin/ingress-entrypoint.sh"]

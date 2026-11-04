@@ -91,7 +91,7 @@ def main():
         for f in ("metrics", "readyz", "public", "gate"): (st.d / "targets" / f"{f}.yml").write_text("[]\n")
         (st.d / "targets").chmod(0o755)
         for p in (st.d / "targets").glob("*"): p.chmod(0o644)
-        prom = st.run("prometheus", "--network-alias", "prometheus", *HARD, "--tmpfs", "/tmp", "--tmpfs", "/prometheus:uid=65534", "-v", f"{st.d}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro", "-v", f"{st.d}/targets:/etc/openit/monitoring/targets:ro", t, "prometheus")
+        prom = st.run("prometheus", "--network-alias", "prometheus", *HARD, "--tmpfs", "/tmp", "--tmpfs", "/prometheus:uid=65534", "-v", f"{st.d}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro", "-v", f"{st.d}/targets:/etc/openit/monitoring/targets:ro", "-e", "MONITORING_ROLE=prometheus", t)
         got = wait(lambda: (lambda r: r if r[0] == "200" else None)(http_in(prom, "http://127.0.0.1:9090/-/healthy")), "prom")
         check("monitoring: prometheus /-/healthy 200", got is not None, got)
 

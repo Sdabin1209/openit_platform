@@ -119,6 +119,15 @@ rc, out = kcadm("get", "events", "-r", "openit", "-q", "type=LOGIN", "-q", "max=
 rc, out = kcadm("get", "realms/openit", "--fields", "eventsExpiration"); chk("로그인 기록 보존 365일(31536000초)", "31536000" in out, out)
 print(f"  Python 확인 {fails} 건 실패"); sys.exit(1 if fails else 0)
 PY
+echo "== 이미지 HEALTHCHECK (identity, identity-proxy, identity-db, 영역 게이트웨이, 공개 입구)"
+hstat() { "$DOCKER" inspect -f '{{.State.Health.Status}}' "$(dcp ps -q "$1")" 2>/dev/null; }
+hwait() { local want=$2 i; for i in $(seq 1 60); do [ "$(hstat "$1")" = "$want" ] && return 0; sleep 3; done; return 1; }   # 준비 확인: 건강 확인 자체가 신호다
+for svc in identity identity-proxy identity-db identity-gw identity-proxy-gw gateway; do ok "$svc: 이미지 HEALTHCHECK 가 healthy" hwait $svc healthy; done
+"$DOCKER" pause "$(dcp ps -q identity-proxy)" >/dev/null; "$DOCKER" pause "$(dcp ps -q gateway)" >/dev/null
+ok "변이: identity-proxy 가 응답하지 않으면 unhealthy" hwait identity-proxy unhealthy
+ok "변이: 공개 입구가 응답하지 않으면 unhealthy" hwait gateway unhealthy
+"$DOCKER" unpause "$(dcp ps -q identity-proxy)" >/dev/null; "$DOCKER" unpause "$(dcp ps -q gateway)" >/dev/null
+for svc in identity-proxy gateway; do ok "$svc: 되살리면 다시 healthy" hwait $svc healthy; done
 echo "== 출구 경유 (RUNTIME R1.8: identity-proxy 가 identity 를 부르는 호출은 영역 게이트웨이의 CONNECT 출구로만 나간다)"
 STAFFPW="$SECRETS_DIR/tokens/idp-test-staff-e2e-password"
 lc() { "$PY" -I -W ignore identity/tests/login_check.py "$PORT" "$PKI_DIR/root_ca.crt" staff-e2e "$STAFFPW"; }

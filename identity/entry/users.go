@@ -131,10 +131,12 @@ func usersJob(args []string) {
 	}
 	created, updated := 0, 0
 	for _, u := range cfg.Users {
-		rep := map[string]any{"username": u.Username, "enabled": true, "emailVerified": true}
-		if u.Email != "" {
-			rep["email"] = u.Email
+		// Keycloak 26 의 기본 사용자 프로필은 이메일·이름이 비면 첫 로그인에서 "프로필 갱신" 단계를 요구한다: 설정에 없는 값은 사용자 이름에서 채워 로그인이 곧바로 된다
+		email := u.Email
+		if email == "" {
+			email = u.Username + "@users.invalid"
 		}
+		rep := map[string]any{"username": u.Username, "enabled": true, "emailVerified": true, "email": email, "firstName": "OpenIt", "lastName": u.Username, "requiredActions": []string{}}
 		body, _, err := k.do("GET", "/auth/admin/realms/openit/users?exact=true&username="+url.QueryEscape(u.Username), nil, 200)
 		if err != nil {
 			fail(err)

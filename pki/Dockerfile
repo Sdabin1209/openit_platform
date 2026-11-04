@@ -19,8 +19,12 @@ COPY --from=common --chmod=755 backup-job.sh /usr/local/bin/platform-backup-job
 COPY --from=boundary_contracts schemas/CommonEnv.schema.json /etc/openit/schemas/
 COPY --from=boundary_contracts schemas/StepCaEnv.schema.json /etc/openit/schemas/
 COPY image/entrypoint.sh /usr/local/bin/openit-step-ca-entrypoint.sh
+COPY --chmod=755 image/step-cert-perms.sh /usr/local/bin/step-cert-perms
 # 상태 폴더는 Docker 표준 VOLUME 으로 선언한다(배치는 이미지 선언을 읽어 마운트하고 경로를 따로 알지 않는다): CA 키·설정 /home/step, (발급 토큰·인증서 폴더는 STEP_TOKENS_DIR·STEP_CERTS_DIR 로 받는 실행별 마운트다)
 VOLUME ["/home/step"]
+# 키 파일 그룹(StepCaEnv.STEP_CERT_GID 기본 10100): step 이 이 그룹의 구성원이라 root 없이 chgrp 할 수 있다. 다른 gid 는 deploy 의 group_add 로 보조 그룹을 받는다
+USER root
+RUN addgroup -g 10100 openit-certs && addgroup step openit-certs
 USER step
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 CMD ["/usr/local/bin/openit-step-ca-entrypoint.sh", "health"]
 ENTRYPOINT ["/usr/local/bin/openit-step-ca-entrypoint.sh"]

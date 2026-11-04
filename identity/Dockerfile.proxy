@@ -14,5 +14,7 @@ COPY --from=boundary_contracts schemas/IdentityProxyEnv.schema.json /etc/openit/
 COPY --from=boundary_contracts schemas/CommonEnv.schema.json /etc/openit/schemas/
 # io.openit.exposure: 이 서비스의 노출 선언(계약 Exposure, 정본 identity/exposure-identity-proxy.json). build-image.sh 가 계약 스키마로 검증해 build arg 로 준다
 LABEL io.openit.exposure="${EXPOSURE_JSON}" io.openit.service="identity-proxy" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
+# 건강 확인(Docker 표준 HEALTHCHECK): oauth2-proxy 의 /ping(루프백). 셸 없는 이미지라 진입점 바이너리가 확인한다
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 CMD ["/identity-entry", "health", "proxy"]
 USER 65532:65532
 ENTRYPOINT ["/identity-entry", "proxy"]

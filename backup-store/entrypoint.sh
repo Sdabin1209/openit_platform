@@ -6,6 +6,7 @@ set -eu
 # 환경은 계약 BackupStoreEnv 로 검증하고 기본값을 채운다(위반 64)
 ENVOUT=$(envcheck /etc/openit/schemas/BackupStoreEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
 eval "$ENVOUT"
+if [ "${1:-}" = health ]; then nc -z 127.0.0.1 "$OPENIT_BACKUP_PORT"; exit $?; fi   # 이미지 HEALTHCHECK: 저장소 포트가 TCP 를 받는다(TLS·자격은 요청마다 검사)
 DIR=$OPENIT_BACKUP_AREAS_DIR; TLS=$OPENIT_BACKUP_TLS_DIR; HT=/tmp/htpasswd
 [ -r "$TLS/tls.crt" ] && [ -r "$TLS/tls.key" ] || { echo "backup-store: $TLS/tls.crt, tls.key 가 없다(https 전용)" >&2; exit 2; }
 : > "$HT"; n=0

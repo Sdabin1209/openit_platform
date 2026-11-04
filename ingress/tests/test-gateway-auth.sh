@@ -13,6 +13,7 @@ bash "$ROOT/scripts/build-image.sh" "$T/build-req.json" >/dev/null 2>"$T/build.e
 GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
 DATAVOL=gwauth-data-$$; NET=gwauth-net-$$; CN=gwauth-csrf-$$; CF=gwauth-fakeauth-$$; CU=gwauth-upstream-$$
 cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; docker volume rm -f $DATAVOL >/dev/null 2>&1; rm -rf "$T"; docker rmi "$ING" >/dev/null 2>&1; }; trap cleanup EXIT
+DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1   # 기기 CA(필수 입력 INGRESS_DEVICE_CA_FILE)
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | grep -v "\"level\":\"\(info\|warn\)\"" | tail -3 | tr "\n" " " | cut -c1-300)"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 EXP="$ROOT/ingress/tests/exposures"
@@ -29,7 +30,6 @@ ok "GATEWAY_HOSTS 에 IP 리터럴이 있으면 시작 거부(종료 64, 계약 
 ok "internal 모드에서 루트 내보내기 폴더에 쓸 수 없으면 시작 거부(종료 64): 신뢰가 조용히 끊기지 않는다" bash -c 'e=$(docker run --rm -e GATEWAY_HOSTS=localhost -v "$1:/etc/openit/device-ca.pem:ro" --read-only "$ING" validate 2>&1 >/dev/null); [ $? = 64 ] && grep -q "루트 내보내기 폴더" <<<"$e"' _ "$T/dpki/ca.crt"
 ok "GATEWAY_HOSTS 가 없으면 시작 거부(필수, 종료 64)" bash -c 'docker run --rm "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "acme 모드에서 GATEWAY_ACME_EMAIL 이 없으면 시작 거부(조건부 필수, 종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e GATEWAY_TLS_MODE=acme "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
-DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1   # 기기 CA(필수 입력 INGRESS_DEVICE_CA_FILE)
 OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-secrets.sh 성공" test -s "$T/tokens/devices/auth-1"
 ok "출력에 비밀 값이 없다" bash -c '! grep -qE "[0-9a-f]{40}" <<<"$1"' _ "$OUT"
 ok "정적 계정 파일·basic_auth 조각은 만들지 않는다(U82: 사람 인증은 OIDC)" bash -c '[ ! -e "$1/gateway-accounts.caddy" ] && ! grep -v "^[[:space:]]*#" "$2/ingress/config/Caddyfile" "$2/ingress/config/gateway-auth.caddy" | grep -q "basic_auth"' _ "$T" "$ROOT"

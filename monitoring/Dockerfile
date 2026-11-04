@@ -32,5 +32,6 @@ USER root
 RUN mkdir -p /prometheus /alertmanager && chown 65534:65534 /prometheus /alertmanager
 VOLUME ["/prometheus", "/alertmanager"]
 USER 65534
+# 건강 확인(Docker 표준 HEALTHCHECK): 역할(MONITORING_ROLE)의 HTTP 상태 경로. 간격·재시도는 측정하지 않은 값이다
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 CMD ["/usr/local/bin/openit-monitoring.sh", "health"]
 ENTRYPOINT ["/usr/local/bin/openit-monitoring.sh"]
-CMD ["prometheus"]

@@ -71,11 +71,11 @@ class Mon:
         (s.d / "root_pki").mkdir(); (s.d / "root_pki/root_ca.crt").write_text(unrelated_root(s.d) + (s.d / "root_ca.crt").read_text())   # 여러 PEM 을 이어 붙인 묶음(MONITORING_ROOT_CA 가 받는 형식): 관계없는 루트 + 진짜 루트; (s.d / "root_pki").chmod(0o755); (s.d / "root_pki/root_ca.crt").chmod(0o644)
         pki = ["-v", f"{s.d}/root_pki:/etc/openit/pki:ro"]
         for role, alias in (("blackbox", "blackbox-exporter"), ("json", "json-exporter")):
-            s.run(role, "--network-alias", alias, *HARD, *pki, img, role)
-        s.run("alertmanager", "--network-alias", "alertmanager", *HARD, "--tmpfs", "/alertmanager:uid=65534", img, "alertmanager")
+            s.run(role, "--network-alias", alias, *HARD, *pki, "-e", f"MONITORING_ROLE={role}", img)
+        s.run("alertmanager", "--network-alias", "alertmanager", *HARD, "--tmpfs", "/alertmanager:uid=65534", "-e", "MONITORING_ROLE=alertmanager", img)
         self.prom = s.run("prometheus", "--network-alias", "prometheus", *HARD, "--tmpfs", "/prometheus:uid=65534", *pki, "-v", f"{s.d}/targets:/etc/openit/monitoring/targets:ro",
-                          "-v", f"{s.d}/prometheus.yml:/etc/openit/monitoring/prometheus.yml.tmpl:ro", img, "prometheus")
-        self.node = s.run("node", "--network-alias", "node-exporter", *HARD, "-v", "/:/host:ro", "--tmpfs", "/textfile", img, "node")
+                          "-v", f"{s.d}/prometheus.yml:/etc/openit/monitoring/prometheus.yml.tmpl:ro", "-e", "MONITORING_ROLE=prometheus", img)
+        self.node = s.run("node", "--network-alias", "node-exporter", *HARD, "-v", "/:/host:ro", "--tmpfs", "/textfile", "-e", "MONITORING_ROLE=node", img)
 
     def q(self, expr):
         url = "http://127.0.0.1:9090/api/v1/query?query=" + urllib.parse.quote(expr)
@@ -136,3 +136,17 @@ def test_gate_judging_and_rules_and_alertmanager(mon):
 def test_node_exporter_role(mon):
     assert mon.val('node_filesystem_size_bytes{job="node"}') is not None or True
     mon.wait('up{job="node"}', 1)
+
+
+def test_healthchecks_of_every_role_and_mutation(mon):
+    # 이미지 HEALTHCHECK(MONITORING_ROLE 의 HTTP 상태 경로): 다섯 역할이 모두 healthy. 변이: 프로세스를 멈추면(pause) unhealthy
+    names = ["prometheus", "alertmanager", "blackbox", "json", "node"]
+    def status(n): return sh("docker", "inspect", "-f", "{{.State.Health.Status}}", f"{n}-{mon.s.tag}", check=False).stdout.strip()
+    end = time.time() + 120
+    while time.time() < end and any(status(n) != "healthy" for n in names): time.sleep(3)   # 준비 확인: 건강 확인 자체가 신호다
+    assert {n: status(n) for n in names} == {n: "healthy" for n in names}
+    sh("docker", "pause", f"prometheus-{mon.s.tag}")
+    end = time.time() + 120
+    while time.time() < end and status("prometheus") != "unhealthy": time.sleep(3)
+    assert status("prometheus") == "unhealthy"
+    sh("docker", "unpause", f"prometheus-{mon.s.tag}")

@@ -34,6 +34,8 @@ LABEL io.openit.service="area-gateway" \
       io.openit.contracts.boundary="${BOUNDARY_TAG}" \
       io.openit.contracts.survey-schema="n/a" \
       io.openit.model-runtime="n/a"
+# 건강 확인(Docker 표준 HEALTHCHECK): 출구·입구 listener 가 TCP 를 받는지. 간격·재시도는 측정하지 않은 값이다
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 CMD ["/usr/local/bin/area-gateway-entrypoint.sh", "health"]
 USER 101
 EXPOSE 443
 ENTRYPOINT ["/usr/local/bin/area-gateway-entrypoint.sh"]

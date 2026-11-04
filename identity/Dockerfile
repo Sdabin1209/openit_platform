@@ -17,5 +17,7 @@ COPY --from=entry /identity-entry /usr/local/bin/identity-entry
 COPY --from=boundary_contracts schemas/IdentityEnv.schema.json /etc/openit/schemas/
 # io.openit.exposure: 이 서비스의 노출 선언(계약 Exposure, 정본 identity/exposure-identity.json). build-image.sh 가 계약 스키마로 검증해 build arg 로 준다
 LABEL io.openit.jobs="${JOBS_JSON}" io.openit.exposure="${EXPOSURE_JSON}" io.openit.service="identity" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
+# 건강 확인(Docker 표준 HEALTHCHECK): 관리 포트의 준비 경로. 첫 기동은 realm 가져오기로 오래 걸린다(시작 유예 90초는 측정하지 않은 값)
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=3 CMD ["/usr/local/bin/identity-entry", "health", "keycloak"]
 USER 1000
 ENTRYPOINT ["/usr/local/bin/identity-entry", "keycloak"]

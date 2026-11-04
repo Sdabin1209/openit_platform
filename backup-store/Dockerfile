@@ -17,6 +17,8 @@ COPY --chmod=755 entrypoint.sh /usr/local/bin/openit-backup-store-entrypoint.sh
 USER root
 RUN mkdir -p /data && chown 65534:65534 /data
 VOLUME ["/data"]
+# 건강 확인(Docker 표준 HEALTHCHECK): 저장소 포트가 TCP 를 받는지
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/openit-backup-store-entrypoint.sh", "health"]
 USER 65534
 EXPOSE 8000
 ENTRYPOINT ["/usr/local/bin/openit-backup-store-entrypoint.sh"]
