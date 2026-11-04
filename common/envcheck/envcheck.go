@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+
+	"github.com/dlclark/regexp2"
 	"sort"
 	"strings"
 )
@@ -87,7 +89,10 @@ func Load(schemaPath string) (map[string]string, []string) {
 			continue
 		}
 		if pat, ok := p["pattern"].(string); ok {
-			if re, e := regexp.Compile(pat); e != nil || !re.MatchString(v) {
+			// JSON Schema 의 pattern 은 ECMA 262 정규식이다(전방탐색 (?!...) 을 쓰는 스키마가 있다: GATEWAY_HOSTS 의 IP 리터럴 금지). Go 표준 RE2 는 전방탐색을 못 하므로 ECMAScript 모드의 regexp2 를 쓴다.
+			if re, e := regexp2.Compile(pat, regexp2.ECMAScript); e != nil {
+				bad = append(bad, n+": 스키마의 pattern 을 해석하지 못했다")
+			} else if ok2, _ := re.MatchString(v); !ok2 {
 				bad = append(bad, n+": 값이 형식(pattern)에 맞지 않는다")
 			}
 		}
