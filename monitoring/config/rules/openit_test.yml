@@ -1,4 +1,4 @@
-# promtool test rules config/prometheus/rules/openit_test.yml  (경보가 옛 check_health.py 의 판정과 같은 경계에서 울리는지)
+# promtool test rules rules/openit_test.yml  (경보가 옛 check_health.py 의 판정과 같은 경계에서 울리는지)
 rule_files: [openit.yml]
 evaluation_interval: 1m
 tests:
@@ -109,8 +109,8 @@ tests:
       - {series: 'openit_model_call_duration_seconds_bucket{instance="m",op="respond",le="+Inf"}', values: '0+60x30'}
       - {series: 'openit_next_item_overridden_total{instance="up",op="extract"}', values: '0+1x30'}
       - {series: 'openit_next_item_overridden_total{instance="flat",op="extract"}', values: '5x30'}
-      - {series: 'up{job="survey-service-metrics",instance="s"}', values: '0x30'}
-      - {series: 'up{job="model-serving-metrics",instance="m"}', values: '1x30'}
+      - {series: 'up{job="area-metrics",instance="s:443",service="survey-service"}', values: '0x30'}
+      - {series: 'up{job="area-metrics",instance="m:443",service="model-serving"}', values: '1x30'}
     alert_rule_test:
       - eval_time: 5m          # 조건이 막 참이 됐다: for 5m 이 차기 전에는 울리지 않는다
         alertname: PatientTurnP95OverSLO
@@ -133,7 +133,7 @@ tests:
       - eval_time: 10m
         alertname: MetricsTargetDown
         exp_alerts:
-          - {exp_labels: {severity: warning, job: survey-service-metrics, instance: s}, exp_annotations: {summary: "survey-service-metrics 의 /metrics 를 읽지 못한다 (monitoring 네트워크, ADR 0053)"}}
+          - {exp_labels: {severity: warning, job: area-metrics, instance: "s:443", service: survey-service}, exp_annotations: {summary: "survey-service 의 /metrics 를 읽지 못한다 (R10.11: 10초 초과·연결 실패·200 아님)"}}
   - name: 소요 시간 경보 경계(U71) - 빠른 환자 턴과 합이 1.5초 이하인 모델 호출은 울리지 않는다
     interval: 1m
     input_series:
@@ -152,15 +152,15 @@ tests:
   - name: 인증서 수명·시계 경보(R8.2, R1.6)
     interval: 1m
     input_series:
-      - {series: 'probe_ssl_earliest_cert_expiry{instance="https://release-gate/readyz"}', values: '36000+0x700'}   # 만료 시각(절대, 초) 고정: 시간이 흐르며 남은 수명이 줄어든다
-      - {series: 'probe_ssl_earliest_cert_expiry{instance="https://survey-service/readyz"}', values: '86400+0x700'}
+      - {series: 'probe_ssl_earliest_cert_expiry{job="probe-readyz",instance="https://release-gate/readyz"}', values: '36000+0x700'}   # 만료 시각(절대, 초) 고정: 시간이 흐르며 남은 수명이 줄어든다
+      - {series: 'probe_ssl_earliest_cert_expiry{job="probe-readyz",instance="https://survey-service/readyz"}', values: '86400+0x700'}
       - {series: 'node_timex_offset_seconds', values: '0 0 0 0 0 0 0 0 0 0 0 0 100+0x20'}
     alert_rule_test:
       - {eval_time: 5m, alertname: CertificateLifetimeUnderOneThird, exp_alerts: []}
       - eval_time: 130m
         alertname: CertificateLifetimeUnderOneThird
         exp_alerts:
-          - {exp_labels: {severity: critical, instance: "https://release-gate/readyz"}, exp_annotations: {summary: "https://release-gate/readyz 서비스 인증서 남은 수명이 수명(24시간)의 1/3 미만 (인증서 발급·갱신 실패)"}}
+          - {exp_labels: {severity: critical, job: probe-readyz, instance: "https://release-gate/readyz"}, exp_annotations: {summary: "https://release-gate/readyz 서비스 인증서 남은 수명이 수명(24시간)의 1/3 미만 (인증서 발급·갱신 실패)"}}
       - {eval_time: 5m, alertname: ClockOffsetHigh, exp_alerts: []}
       - eval_time: 25m
         alertname: ClockOffsetHigh

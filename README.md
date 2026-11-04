@@ -7,7 +7,10 @@
 
 ## 5. 시험 상태
 - `tests/test_area_gateway.py`(Docker 필요): 10건 통과 — 들어오는 쪽 TLS 종단·서비스 이름 인증서, 나가는 쪽 허용 상대 터널, 선언 밖 403 BoundaryError, 변이(egress 에서 빼면 거절), 출구 리스너가 loopback 전용, upstream_port 경로별 상류, 413 본문 상한, 잘못된/없는 선언은 시작 안 함.
-- 공개 입구·사람 인증·인증서 발급·감시·백업 저장소: deploy 에서 옮기는 중(미완).
+- 감시·백업 저장소·인증서 발급(step-ca): `tests/test_monitoring.py`, `tests/test_backup_store.py`, `tests/test_step_ca.py`(Docker 필요). 배포 입력은 `docs/COMPONENTS.md`.
 
 ## ADR
 - [0001 영역 게이트웨이: Envoy](docs/adr/0001-area-gateway-envoy.md)
+- [0010 감시](docs/adr/0010-monitoring-prometheus-one-image.md)
+- [0011 백업 저장소](docs/adr/0011-backup-store-rest-server-private-repos.md)
+- [0012 인증서 발급](docs/adr/0012-step-ca-entrypoint-subcommands.md)
