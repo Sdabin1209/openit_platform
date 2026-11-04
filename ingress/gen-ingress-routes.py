@@ -111,7 +111,7 @@ def gen(exposures):
             svc, r = opts[0]
             body += ["handle @device_cert {", "\theader ?Cache-Control no-store"] + indent(proxy(svc, r, "device_cert")) + ["}",
                      "handle @device_ok {", "\theader ?Cache-Control no-store"] + indent(proxy(svc, r, "device_token")) + ["}",
-                     "handle {"] + indent(respond(401, PERM("device authentication failed"), ['header WWW-Authenticate `Bearer realm="openit"`'])) + ["}"]
+                     "handle {"] + indent(respond(401, PERM("device authentication failed"), ["header WWW-Authenticate Bearer"])) + ["}"]
         elif kinds <= {"account", "authenticated"}:
             body += ["import authenticate"]
             auth_only = [o for o in opts if o[1]["auth"]["kind"] == "authenticated"]

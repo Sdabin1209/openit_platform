@@ -20,5 +20,8 @@ COPY config/ /etc/caddy/
 COPY exposures-builtin/ /etc/openit/exposures-builtin/
 COPY gen-ingress-routes.py /usr/local/bin/gen-ingress-routes.py
 COPY entrypoint.sh /usr/local/bin/ingress-entrypoint.sh
+# 인증 없는 요청의 기대 응답 점검(공개 입구 동작의 정본: 선언에서 기대 행을 만든다). 배포는 띄운 스택에 docker run --entrypoint selfcheck-unauth 로 실행만 한다
+COPY selfcheck-unauth.py /usr/local/bin/selfcheck-unauth.py
+COPY selfcheck-unauth.sh /usr/local/bin/selfcheck-unauth
 USER 10001
 ENTRYPOINT ["/usr/local/bin/ingress-entrypoint.sh"]

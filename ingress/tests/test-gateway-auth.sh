@@ -41,7 +41,7 @@ docker run -d --name $CU --network $NET $(for h in survey-service release-gate q
 printf '{\n\tadmin off\n\tskip_install_trust\n\tauto_https off\n}\nhttps://:443 {\n\ttls /pki/leaf.crt /pki/leaf.key\n\treverse_proxy 127.0.0.1:{$UP}\n}\n' > "$PKI/front.caddy"
 for pair in "$CU:8080" "$CF:4180"; do docker run -d --name "${pair%%:*}-tls" --network "container:${pair%%:*}" -e UP="${pair##*:}" -v "$PKI/front.caddy:/etc/caddy/Caddyfile:ro" -v "$PKI:/pki:ro" "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null; done
 # 교차 사이트 요청 방어(점검 M2)의 실제 동작: gateway 를 띄우고 헤더 조합별 응답을 본다. 인증이 없으면 401 이므로 "403 + 교차 출처 문구"는 이 규칙만의 응답이다. (Docker·Caddy 필요)
-docker run -d --name $CN --network $NET $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES -p 127.0.0.1::8443 "$ING" >/dev/null
+docker run -d --name $CN --network $NET --network-alias gateway $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES -p 127.0.0.1::8443 "$ING" >/dev/null
 CP=""; for i in $(seq 1 30); do CP=$(docker port $CN 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$CP" ] && curl -sk -o /dev/null -m 2 "https://127.0.0.1:$CP/healthz" && break; sleep 0.5; done   # port-wait: 게이트웨이 포트가 열릴 때까지만 기다린다
 cs() { curl -sk -m 5 -o "$T/cs.out" -w '%{http_code}' -X "$1" "${@:3}" "https://127.0.0.1:$CP$2"; }
 csrf_case() { # csrf_case <설명> <기대 코드> <교차 출처 문구 포함 여부> <메서드> <경로> [curl 인자...]
@@ -202,8 +202,18 @@ for pth in /healthz /readyz; do AN=$((AN+1)); hb=$(curl -sk -m 10 -D "$T/hh" "ht
 # 본문 상한(8MiB)을 Content-Length 로 넘는 요청은 상류로 보내기 전에 413 이다(상류가 TLS 사이드카일 때 본문 읽기 오류가 503 으로 올라왔다, 4차 E2E 5a)
 AN=$((AN+1)); big=$(head -c 9437184 /dev/zero | curl -sk -o /dev/null -m 30 -w '%{http_code}' -X POST --data-binary @- -H 'Content-Type: text/plain' "https://127.0.0.1:$CP/v1/materials?question_set_id=x" 2>/dev/null || true)
 if [ "$big" = 413 ]; then echo "  PASS 8MiB 초과 본문은 413"; else echo "  FAIL 8MiB 초과 본문이 $big (기대 413)"; FAILS=$((FAILS+1)); fi
-# E2E 와 같은 기대표·같은 스크립트(scripts/check-unauth-expectations.sh, test/gateway-oidc/unauth-expectations.txt): 인증 없는 요청의 응답
-AN=$((AN+1)); if out=$(bash "$ROOT/ingress/scripts/check-unauth-expectations.sh" "https://127.0.0.1:$CP" --insecure 2>&1); then echo "  PASS $out"; else echo "  FAIL 인증 없는 요청 기대표: $out"; FAILS=$((FAILS+1)); fi
+# 이미지 안 자체 점검 명령(selfcheck-unauth): 선언에서 기대 행을 만들어 실제 공개 입구에 인증 없는 요청을 보낸다(정본은 이 이미지 한 곳, deploy 는 이 명령을 실행만 한다). rc=0 일치
+selfcheck() { docker run --rm --network $NET -v "$1:/etc/openit/exposures:ro" --entrypoint selfcheck-unauth "$ING" "https://gateway:8443" --insecure; }
+AN=$((AN+1)); if out=$(selfcheck "$EXP" 2>&1); then echo "  PASS 자체 점검 명령: $(echo "$out" | tail -1)"; else echo "  FAIL 자체 점검 명령 rc=$?: $(echo "$out" | grep -a FAIL | head -3 | tr '\n' ' ')"; FAILS=$((FAILS+1)); fi
+# 변이: 선언 하나의 인증 종류를 바꾸면(직원 화면 account -> device-token) 같은 명령이 rc=1
+mkdir -p "$T/mut-exp"; cp "$EXP"/*.json "$T/mut-exp/"; python3 - "$T/mut-exp/kiosk-frontend.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+for r in d["routes"]:
+    if "/staff/*" in r["paths"]: r["auth"]={"kind":"device-token"}
+json.dump(d,open(sys.argv[1],"w"))
+PY
+AN=$((AN+1)); if out=$(selfcheck "$T/mut-exp" 2>&1); then echo "  FAIL 변이: 선언을 바꿨는데 자체 점검이 통과했다"; FAILS=$((FAILS+1)); else echo "  PASS 변이: 선언이 실제와 다르면 자체 점검이 rc=1 ($(echo "$out" | grep -ac FAIL)건 FAIL)"; fi
 # 기기 토큰 경로(공개 API): 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer (RFC 6750 3절)
 DEVTOK=$(cat "$T/tokens/kiosk-device-auth-1")
 chk401 "기기 토큰 없음 POST /v1/sessions" Bearer - POST /v1/sessions

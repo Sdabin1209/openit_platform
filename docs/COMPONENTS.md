@@ -26,3 +26,6 @@ targets 파일 형식: `metrics.yml` 은 `- targets: ['<서비스>:443']`, `read
 | `token <이름>...` | `/tokens`(rw), `/etc/openit/pki/root_ca.crt`(ro), `/run/secrets/step-ca-password`(ro), `/tmp` | `STEP_CA_URL`(기본 `https://step-ca:$PORT`) |
 | `cert <이름>` | `/certs`(rw, 소유자 1000), `/tokens`(ro), `/etc/openit/pki`(ro), `/tmp` | `STEP_CERT_NOT_AFTER` `STEP_RENEW_EXPIRES_IN`(기본 12h) |
 HEALTHCHECK 는 이미지에 있다(CA 는 `step ca health`, 인증서 컨테이너는 만료 포함 검증).
+
+## public-ingress 자체 점검 명령
+`selfcheck-unauth <https://주소:포트> [--cacert 파일 | --insecure]`: 인자·종료 코드·기대 행은 `docs/boundary.md` 의 "공개 입구 자체 점검 명령" 절. 선언 폴더(`/etc/openit/exposures`)는 공개 입구를 띄울 때와 같은 것을 마운트한다.
