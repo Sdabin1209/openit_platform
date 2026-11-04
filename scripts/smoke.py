@@ -32,6 +32,13 @@ def http(st, url, *extra):
     return code or "000", body
 
 
+def http_in(container, url, *extra):
+    """확인 컨테이너를 대상의 네트워크 공간에 붙여 부른다(--network container:<이름>): 평문 HTTP 는 루프백에서만 연다(RUNTIME R1.1)."""
+    r = sh("docker", "run", "--rm", "--network", f"container:{container}", CURL, "-sk", "--max-time", "5", "-o", "/dev/stdout", "-w", "\n%{http_code}", *extra, url, check=False)
+    body, _, code = r.stdout.rpartition("\n")
+    return code or "000", body
+
+
 def wait(fn, what, seconds=60):
     """준비 확인: 조건이 참이 될 때까지 기다린다(상태 확인 자체가 준비 신호)."""
     end = time.time() + seconds
@@ -69,13 +76,12 @@ def main():
         t = tag("public-ingress"); imgs.append(t); image_checks("public-ingress", "public-ingress", t)
         sec = st.d / "sec"; pki = st.d / "ipki"; pki.mkdir()
         sh("bash", str(ROOT / "ingress/scripts/gen-test-secrets.sh"), str(sec))
-        mounts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && gateway_test_pki {pki} survey-service keycloak oauth2-proxy && gateway_test_mounts {pki} && echo $SECRETS_GID").stdout.split()
+        mounts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && gateway_test_pki {pki} survey-service identity identity-proxy && gateway_test_mounts {pki} && echo $SECRETS_GID").stdout.split()
         gid = mounts[-1]; mounts = mounts[:-1]
-        hosts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && echo $GATEWAY_HOST_NAMES").stdout.strip()
-        st.run("public-ingress", "--network-alias", "ingress", "--user", "10001:10001", "--group-add", gid, *HARD, "--tmpfs", "/tmp:uid=10001,gid=10001", "--tmpfs", "/data:uid=10001,gid=10001", "--tmpfs", "/config:uid=10001,gid=10001",
-               *mounts, "-e", f"GATEWAY_HOST_NAMES={hosts}", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/gateway-devices.caddy:/etc/caddy/devices.caddy:ro", "-v", f"{sec}/tokens:/run/secrets:ro", t)
+        ing = st.run("public-ingress", "--network-alias", "ingress", "--user", "10001:10001", "--group-add", gid, *HARD, "--tmpfs", "/tmp:uid=10001,gid=10001", "--tmpfs", "/data:uid=10001,gid=10001", "--tmpfs", "/config:uid=10001,gid=10001",
+               *mounts, "-e", "GATEWAY_HOSTS=localhost:8443, 127.0.0.1:8443", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/tokens:/run/secrets:ro", t)
         # 준비 확인: 응답이 올 때까지(000 = 연결 실패는 아직 준비 전). 튜플은 늘 참이라 wait 가 첫 시도에서 끝나던 결함을 고쳤다
-        got = wait(lambda: (lambda r: r if r[0] != "000" else None)(http(st, "http://ingress:8080/healthz")), "ingress")
+        got = wait(lambda: (lambda r: r if r[0] != "000" else None)(http_in(ing, "http://127.0.0.1:8080/healthz")), "ingress")
         check("public-ingress: /healthz 200 + {\"status\":\"ok\"}", got is not None and got[0] == "200" and '"ok"' in got[1], got)
 
         # ---- monitoring: prometheus 역할 /-/healthy
@@ -84,8 +90,8 @@ def main():
         for f in ("metrics", "readyz", "public", "gate"): (st.d / "targets" / f"{f}.yml").write_text("[]\n")
         (st.d / "targets").chmod(0o755)
         for p in (st.d / "targets").glob("*"): p.chmod(0o644)
-        st.run("prometheus", "--network-alias", "prometheus", *HARD, "--tmpfs", "/tmp", "--tmpfs", "/prometheus:uid=65534", "-v", f"{st.d}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro", "-v", f"{st.d}/targets:/etc/openit/monitoring/targets:ro", t, "prometheus")
-        got = wait(lambda: (lambda r: r if r[0] == "200" else None)(http(st, "http://prometheus:9090/-/healthy")), "prom")
+        prom = st.run("prometheus", "--network-alias", "prometheus", *HARD, "--tmpfs", "/tmp", "--tmpfs", "/prometheus:uid=65534", "-v", f"{st.d}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro", "-v", f"{st.d}/targets:/etc/openit/monitoring/targets:ro", t, "prometheus")
+        got = wait(lambda: (lambda r: r if r[0] == "200" else None)(http_in(prom, "http://127.0.0.1:9090/-/healthy")), "prom")
         check("monitoring: prometheus /-/healthy 200", got is not None, got)
 
         # ---- backup-store: 자격 없는 요청은 401(TLS 위에서 서버가 살아 있다)
@@ -109,6 +115,9 @@ def main():
         c = st.run("step-ca", "--network-alias", "step-ca", *HARD, "--tmpfs", "/tmp:exec", "-v", f"{ca}:/home/step", "-v", f"{st.d}/pw:/run/secrets/step-ca-password:ro", t)
         h = wait(lambda: sh("docker", "inspect", "--format", "{{.State.Health.Status}}", c, check=False).stdout.strip() == "healthy" or None, "ca", 120)
         check("step-ca: HEALTHCHECK 가 healthy", bool(h), sh("docker", "inspect", "--format", "{{.State.Health.Status}}", c, check=False).stdout.strip())
+        # ---- 사람 인증 이미지 3종: 빌드·라벨·비루트(실제 기동·로그인은 identity/tests/test-idp-smoke.sh 가 확인한다)
+        for v in ("identity", "identity-proxy", "identity-db"):
+            t = tag(v); imgs.append(t); image_checks(v, v, t)
     except Exception as e:  # 실패해도 로그를 남기고 정리한다
         check("스모크 진행", False, repr(e)[:300])
     finally:

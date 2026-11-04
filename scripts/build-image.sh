@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 영역 빌드 진입점(계약 BuildImageRequest/BuildImageResult). 사용: bash scripts/build-image.sh <요청 JSON 파일>   (영역 리포 루트에서)
 # 표준 출력 마지막 줄 = BuildImageResult JSON 한 줄. 진행 기록은 표준 오류. 종료 0 성공. 환경 변수: DOCKER(기본 docker)뿐. 비밀 없음.
-# 이 영역이 만드는 이미지(variant): 없음=영역 게이트웨이(area-gateway), public-ingress(공개 입구), monitoring, backup-store, step-ca. identity(Keycloak·oauth2-proxy)는 공식 이미지를 그대로 쓰므로 이미지가 없다(ADR 0004).
+# 이 영역이 만드는 이미지(variant): 없음=영역 게이트웨이(area-gateway), public-ingress(공개 입구), monitoring, backup-store, step-ca. identity(Keycloak 위), identity-proxy(oauth2-proxy 위), identity-db(postgres 위) — 3.4.10(ADR 0004).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DOCKER=${DOCKER:-docker}; PYTHON=.venv/bin/python
@@ -14,11 +14,11 @@ from boundary_contracts import validator
 req = json.load(open(sys.argv[1], encoding="utf-8"))
 errs = list(validator("BuildImageRequest").iter_errors(req))
 if errs: sys.exit("build-image: BuildImageRequest 를 어긴 요청: " + errs[0].message[:200])
-VAR = {"": ("area-gateway", "area-gateway"), "public-ingress": ("ingress", "public-ingress"), "monitoring": ("monitoring", "monitoring"), "backup-store": ("backup-store", "backup-store"), "step-ca": ("pki", "step-ca")}
+VAR = {"": ("area-gateway", "area-gateway"), "public-ingress": ("ingress", "public-ingress"), "monitoring": ("monitoring", "monitoring"), "backup-store": ("backup-store", "backup-store"), "step-ca": ("pki", "step-ca"), "identity": ("identity", "identity", "Dockerfile"), "identity-proxy": ("identity", "identity-proxy", "Dockerfile.proxy"), "identity-db": ("identity", "identity-db", "Dockerfile.db")}
 v = req.get("variant") or ""
 if v not in VAR: sys.exit("build-image: 이 영역은 variant 를 모른다: " + v)
 if not (req.get("versions") or {}).get("boundary"): sys.exit("build-image: 이 영역이 쓰는 키가 요청에 없다: versions.boundary")
-for k, val in {"SRC": req["source_dir"], "REVISION": req["revision"], "BOUNDARY_TAG": req["versions"]["boundary"], "IMAGE_TAG": req["image_tag"], "CTX": VAR[v][0], "SERVICE": VAR[v][1], "BOUNDARY_SRC": (req.get("dependency_sources") or {}).get("boundary", "")}.items():
+for k, val in {"SRC": req["source_dir"], "REVISION": req["revision"], "BOUNDARY_TAG": req["versions"]["boundary"], "IMAGE_TAG": req["image_tag"], "CTX": VAR[v][0], "SERVICE": VAR[v][1], "DOCKERFILE": (VAR[v][2] if len(VAR[v]) > 2 else "Dockerfile"), "BOUNDARY_SRC": (req.get("dependency_sources") or {}).get("boundary", "")}.items():
     print(f"{k}={shlex.quote(val)}")
 PY
 ) || exit 1
@@ -29,12 +29,13 @@ ACTUAL="v$("$PYTHON" -c 'import importlib.metadata as m; print(m.version("bounda
 [ "$ACTUAL" = "$BOUNDARY_TAG" ] || die "요청 versions.boundary($BOUNDARY_TAG)와 이 영역 환경의 계약 패키지($ACTUAL)가 다르다. setup-env.sh 를 다시 실행한다"
 echo "build-image: $IMAGE_TAG (revision $REVISION, boundary $ACTUAL)" >&2
 CTXARGS=()
-if [ "$CTX" = area-gateway ] || [ "$CTX" = ingress ]; then   # 설정 생성기가 계약 스키마로 선언을 검증한다: 계약 패키지는 요청의 소스 트리에서만 설치한다(빌드 중 이웃 리포·SSH 없음)
+# 모든 이미지가 기동 때 자기 Env 계약 스키마로 환경을 검증한다(common/envcheck): 스키마와 계약 패키지는 요청의 소스 트리에서만 받는다(빌드 중 이웃 리포·SSH 없음)
+if true; then
   [ -d "$BOUNDARY_SRC" ] || die "이 이미지는 요청의 dependency_sources.boundary(계약 소스 트리)가 필요하다"
   BA="v$(sed -n 's/^version = "\(.*\)"$/\1/p' "$BOUNDARY_SRC/pyproject.toml" | head -1)"; [ "$BA" = "$ACTUAL" ] || die "dependency_sources.boundary 의 실제 버전($BA)이 환경의 계약 패키지($ACTUAL)와 다르다"
-  CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC")
+  CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC" --build-context "common=$PWD/common")
 fi
-"$DOCKER" build -q -t "$IMAGE_TAG" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" "${CTXARGS[@]}" "$CTX" >&2
+"$DOCKER" build -q -t "$IMAGE_TAG" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" -f "$CTX/$DOCKERFILE" "${CTXARGS[@]}" "$CTX" >&2
 "$DOCKER" image inspect "$IMAGE_TAG" | "$PYTHON" -c '
 import json, sys
 from boundary_contracts import validator

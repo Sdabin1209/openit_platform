@@ -21,3 +21,5 @@
 - [0010 감시](docs/adr/0010-monitoring-prometheus-one-image.md)
 - [0011 백업 저장소](docs/adr/0011-backup-store-rest-server-private-repos.md)
 - [0012 인증서 발급](docs/adr/0012-step-ca-entrypoint-subcommands.md)
+- [0004 사람 인증 이미지: 공식 이미지 위의 얇은 이미지](docs/adr/0004-identity-images-thin-over-official.md)
+- [0005 환경 검증: envcheck](docs/adr/0005-envcheck-contract-env-validation.md)

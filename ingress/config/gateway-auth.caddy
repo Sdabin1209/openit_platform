@@ -6,10 +6,10 @@
 	request_header -X-Auth-Request-User
 	request_header -X-Auth-Request-Preferred-Username
 	request_header -X-Auth-Request-Groups
-	forward_auth https://oauth2-proxy {
+	forward_auth https://identity-proxy {
 		header_up Host {upstream_hostport}
 		transport http {
-			tls_trusted_ca_certs /etc/openit/pki/root_ca.crt
+			tls_trusted_ca_certs {$INGRESS_ROOT_CA}
 			dial_timeout 1s
 			response_header_timeout {$AUTH_CHECK_TIMEOUT:2s}   # R3.12: 인증 확인이 이 한도를 넘으면 503 UU(401·로그인 화면 이동 아님). 값은 ADR 0002(측정 안 함)
 		}

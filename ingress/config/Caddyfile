@@ -20,12 +20,12 @@
 		}
 	}
 }
-# 토큰은 환경 변수가 아니라 Caddy 표준 파일 치환 {file./run/secrets/<이름>} 으로 읽는다(D84; 설정을 읽을 때 한 번 치환되고 컨테이너 환경에 값이 없다).
+# 토큰은 환경 변수가 아니라 Caddy 표준 파일 치환 {file.{$INGRESS_UPSTREAM_TOKENS_DIR}/<이름>} 으로 읽는다(D84; 설정을 읽을 때 한 번 치환되고 컨테이너 환경에 값이 없다).
 # 사람 인증(U82, head ADR 0014, deploy ADR 0057): 직원·운영자·승인자·검토자·저자·의사·admin 을 OIDC(Keycloak + oauth2-proxy)로 인증한다. 정적 계정 파일·basic_auth 는 없다.
 # config/gateway-auth.caddy 가 두 조각을 정의한다: (authenticate) = oauth2-proxy 에 묻는 forward_auth, (role_matchers) = 그룹 -> 역할. 이 Caddyfile 의 나머지는 두 조각의 이름만 안다.
 import /etc/caddy/gateway-auth.caddy
-# 키오스크 기기 인증(D85 F절): (kiosk_devices) 가 @device_ok 를 정의한다. 기기 토큰 목록은 secrets/gateway-devices.caddy (scripts/kiosk-add-device.sh).
-import /etc/caddy/devices.caddy
+# 키오스크 기기 인증(D85 F절): (kiosk_devices) 가 @device_ok 를 정의한다. 기기 토큰 목록은 시작할 때 INGRESS_DEVICE_TOKENS_DIR 의 기기별 파일에서 이미지가 만든다(/tmp/openit/devices.caddy).
+import /tmp/openit/devices.caddy
 # 키오스크 기기 인증(2.3.0, D113, ADR 0040): 게이트웨이가 클라이언트 인증서를 검증하고 주체 CN 을 X-Openit-Device 로 서비스에 넘긴다. 신뢰할 CA 한 개는 파일 설정이다(비밀 아님):
 # /etc/caddy/device-tls.caddy 가 (device_client_auth) 를 정의한다. 기본 파일은 비어 있어(검증 꺼짐) 기기 토큰(2.x 호환)만 쓴다. 켜는 법: config/device-tls.mtls.caddy.example, docs/runbook.md 9-2.
 import /etc/caddy/device-tls.caddy
@@ -41,7 +41,7 @@ http://:8080 {
 		redir https://{host}:{$GATEWAY_PUBLIC_TLS_PORT:8443}{uri} 308
 	}
 }
-# HTTPS 사이트(컨테이너 8443). 사이트 이름 목록은 GATEWAY_HOSTS(기본 localhost, 127.0.0.1). 운영에서는 병원 내부 도메인을 적는다(예: kiosk.hospital.local:8443).
+# HTTPS 사이트(컨테이너 8443). 사이트 이름 목록은 GATEWAY_HOSTS(기본 localhost, 127.0.0.1). 운영에서는 설치처의 내부 도메인을 적는다(예: kiosk.example.internal:8443).
 {$GATEWAY_HOSTS:localhost:8443, 127.0.0.1:8443}, {$GATEWAY_PROBE_SITE:gateway:8443} {   # 뒤의 사이트 이름은 같은 서버의 감시가 부르는 이름이다(GATEWAY_PROBE_SITE, ADR 0060)
 	import gateway_tls   # 인증서 출처는 GATEWAY_TLS_MODE(internal|files|acme)가 고른다: config/gateway-tls/<모드>.caddy. 이 파일을 손으로 고치지 않는다
 	import kiosk_devices
@@ -120,7 +120,7 @@ http://:8080 {
 			header_up -Authorization
 			lb_try_duration 0
 			transport http {
-				tls_trusted_ca_certs /etc/openit/pki/root_ca.crt   # 서비스 사이드카 인증서는 deploy step-ca 가 발급한다: 루트만 신뢰(ADR 0060)
+				tls_trusted_ca_certs {$INGRESS_ROOT_CA}   # 서비스 사이드카 인증서는 deploy step-ca 가 발급한다: 루트만 신뢰(ADR 0060)
 				dial_timeout 1s
 				response_header_timeout 2s
 			}

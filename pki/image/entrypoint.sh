@@ -7,7 +7,9 @@
 # 비밀번호는 파일(/run/secrets/step-ca-password)로만 받고 출력하지 않는다. 환경 변수: STEP_CA_PORT(9000) STEP_CA_DNS_NAMES(공백 구분 추가 이름) STEP_CA_URL(기본 https://step-ca:$PORT)
 #   STEP_CERT_NOT_AFTER(발급 수명, 비면 인증기관 기본 24h) STEP_RENEW_EXPIRES_IN(남은 수명이 이보다 짧아지면 갱신, 기본 12h = 수명 24h 의 절반)
 set -eu
-PW=/run/secrets/step-ca-password; PORT=${STEP_CA_PORT:-9000}; URL=${STEP_CA_URL:-https://step-ca:$PORT}; ROOT=/etc/openit/pki/root_ca.crt
+# 환경은 계약 StepCaEnv 로 검증하고 기본값을 채운다(위반 64)
+eval "$(envcheck /etc/openit/schemas/StepCaEnv.schema.json)" || exit 64
+PW=$STEP_CA_PASSWORD_FILE; PORT=$STEP_CA_PORT; URL=$STEP_CA_URL; ROOT=/etc/openit/pki/root_ca.crt
 cmd=${1:-serve}; [ $# -eq 0 ] || shift
 case "$cmd" in
   serve)

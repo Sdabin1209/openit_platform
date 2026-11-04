@@ -1,0 +1,15 @@
+# platform 사람 인증 프록시 identity-proxy(oauth2-proxy 공식 이미지 위, 3.4.10). 입력은 계약 IdentityProxyEnv 뿐이다: OAUTH2_PROXY_* 는 진입점(identity-entry proxy)이 만든다. 셸 없는 이미지라 진입점은 Go 정적 바이너리다.
+ARG OAUTH2_PROXY_IMAGE=quay.io/oauth2-proxy/oauth2-proxy@sha256:786bed0f000c0f8a7b31619244ebab02406a8856a4faf3f5fb1df61fbd6c30ed
+ARG GO_BUILDER=docker.io/library/caddy@sha256:c4cd20eaa0b69112fd5d4f721ffc9671687e1d5d0b155c8620cf7546dbef94c0
+FROM ${GO_BUILDER} AS entry
+COPY --from=common . /src/common
+COPY entry/ /src/identity/entry/
+RUN cd /src/identity/entry && CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /identity-entry .
+FROM ${OAUTH2_PROXY_IMAGE}
+ARG COMMIT=unknown
+ARG BOUNDARY_TAG=unknown
+COPY --from=entry /identity-entry /identity-entry
+COPY --from=boundary_contracts schemas/IdentityProxyEnv.schema.json /etc/openit/schemas/
+LABEL io.openit.service="identity-proxy" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
+USER 65532:65532
+ENTRYPOINT ["/identity-entry", "proxy"]

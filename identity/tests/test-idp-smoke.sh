@@ -4,43 +4,39 @@
 # 이미지는 지금 이 리포에서 빌드한다(영역 게이트웨이, 공개 입구, Keycloak optimized). 값(암호·토큰)은 출력하지 않는다. 실패하면 로그를 $KEEP_DIR 에 남긴다.
 set -uo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
-ID=$$; P=platform-idp-$ID; W=$(mktemp -d); export SECRETS_DIR=$W/secrets PKI_DIR=$W/pki
+ID=$$; P=platform-idp-$ID; W=$(mktemp -d); export SECRETS_DIR=$W/secrets IDP_SECRETS=$W/idp PKI_DIR=$W/pki
 cd "$ROOT"; set -a; source locks/images.lock; set +a
 FAILS=0; N=0
 ok() { N=$((N+1)); local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | tail -2 | tr '\n' ' ' | cut -c1-220)"; FAILS=$((FAILS+1)); fi; }
 dcp() { "$DOCKER" compose -p "$P" -f "$ROOT/identity/compose.dev.yaml" "$@"; }
 cleanup() {
-  if [ "$FAILS" != 0 ] || [ "${KEEP:-0}" = 1 ]; then mkdir -p "${KEEP_DIR:-/tmp/platform-idp-logs-$ID}"; for s in keycloak keycloak-gw oauth2-proxy oauth2-proxy-gw gateway keycloak-db; do dcp logs --no-color "$s" > "${KEEP_DIR:-/tmp/platform-idp-logs-$ID}/$s.log" 2>&1; done; echo "로그를 남겼다: ${KEEP_DIR:-/tmp/platform-idp-logs-$ID}"; fi
-  dcp down -v --remove-orphans >/dev/null 2>&1; "$DOCKER" volume rm "$P-pgtls" >/dev/null 2>&1
-  "$DOCKER" rmi "$GW_IMG" "$ING_IMG" "$KC_IMG" >/dev/null 2>&1; rm -rf "$W"
+  if [ "$FAILS" != 0 ] || [ "${KEEP:-0}" = 1 ]; then mkdir -p "${KEEP_DIR:-/tmp/platform-idp-logs-$ID}"; for s in identity identity-gw identity-proxy identity-proxy-gw gateway identity-db; do dcp logs --no-color "$s" > "${KEEP_DIR:-/tmp/platform-idp-logs-$ID}/$s.log" 2>&1; done; echo "로그를 남겼다: ${KEEP_DIR:-/tmp/platform-idp-logs-$ID}"; fi
+  dcp down -v --remove-orphans >/dev/null 2>&1
+  "$DOCKER" rmi "$GW_IMG" "$ING_IMG" "$IDP_IMG" "$PRX_IMG" "$DB_IMG" >/dev/null 2>&1; rm -rf "$W"
 }
 trap cleanup EXIT
 PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
 export SECRETS_GID
-export GATEWAY_PUBLIC_TLS_PORT=$PORT PUBLIC_PORT=$PORT PUBLIC_URL=https://127.0.0.1:$PORT GATEWAY_HOSTS="127.0.0.1:8443, localhost:8443"
-export GATEWAY_HOST_NAMES=$(gateway_host_names) PGTLS_VOLUME=$P-pgtls BUILTIN_DIR=$ROOT/ingress/exposures-builtin EXPOSURES_DIR=$ROOT/ingress/tests/exposures
-GW_IMG=platform-area-gateway:idp-$ID; ING_IMG=platform-ingress:idp-$ID; KC_IMG=platform-keycloak:idp-$ID
-export AREA_GATEWAY_IMAGE=$GW_IMG INGRESS_IMAGE=$ING_IMG KEYCLOAK_OPTIMIZED_IMAGE=$KC_IMG
+export PUBLIC_PORT=$PORT PUBLIC_URL=https://127.0.0.1:$PORT GATEWAY_HOSTS="127.0.0.1:8443, localhost:8443"
+export BUILTIN_DIR=$ROOT/ingress/exposures-builtin EXPOSURES_DIR=$ROOT/ingress/tests/exposures
+GW_IMG=platform-area-gateway:idp-$ID; ING_IMG=platform-ingress:idp-$ID; IDP_IMG=platform-identity:idp-$ID; PRX_IMG=platform-identity-proxy:idp-$ID; DB_IMG=platform-identity-db:idp-$ID
+export AREA_GATEWAY_IMAGE=$GW_IMG INGRESS_IMAGE=$ING_IMG IDENTITY_IMAGE=$IDP_IMG IDENTITY_PROXY_IMAGE=$PRX_IMG IDENTITY_DB_IMAGE=$DB_IMG
 echo "== 준비 (비밀·PKI·이미지)"
 bash ingress/scripts/gen-test-secrets.sh "$SECRETS_DIR" >/dev/null 2>&1 || { echo "시험 비밀을 만들지 못했다"; exit 1; }
-bash identity/scripts/gen-idp-secrets.sh "$SECRETS_DIR" || exit 1
-bash identity/scripts/gen-test-pki.sh "$PKI_DIR" "$SECRETS_DIR" || exit 1
-bash identity/scripts/gen-keycloak-realm.sh "$SECRETS_DIR/keycloak-realm.json" >/dev/null || exit 1
-"$DOCKER" volume create "$PGTLS_VOLUME" >/dev/null
-"$DOCKER" run --rm --user 0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER -v "$PGTLS_VOLUME:/d" -v "$PKI_DIR/pg:/src:ro" "$UTIL_IMAGE" sh -c 'cp /src/server.crt /src/server.key /d/ && chown 999:999 /d/server.crt /d/server.key && chmod 600 /d/server.key' || { echo "postgres 인증서 볼륨을 만들지 못했다"; exit 1; }
+bash identity/scripts/gen-idp-secrets.sh "$IDP_SECRETS" || exit 1
+bash identity/scripts/gen-test-pki.sh "$PKI_DIR" || exit 1
 BSRC=$(bash scripts/fetch-boundary-src.sh "$W/boundary-src") || exit 1
 BV=$("$PY" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')
-for v in "|$GW_IMG" "public-ingress|$ING_IMG"; do
+for v in "|$GW_IMG" "public-ingress|$ING_IMG" "identity|$IDP_IMG" "identity-proxy|$PRX_IMG" "identity-db|$DB_IMG"; do
   var=""; [ -n "${v%%|*}" ] && var=",\"variant\":\"${v%%|*}\""   # 영역 게이트웨이는 variant 없음
   printf '{"source_dir":"%s","revision":"abcdef1","versions":{"boundary":"v%s"}%s,"dependency_sources":{"boundary":"%s"},"image_tag":"%s"}' "$ROOT" "$BV" "$var" "$BSRC" "${v##*|}" > "$W/req.json"
   bash scripts/build-image.sh "$W/req.json" >/dev/null 2>"$W/build.err" || { tail -3 "$W/build.err"; echo "이미지를 만들지 못했다: ${v##*|}"; exit 1; }
 done
-"$DOCKER" build -q -t "$KC_IMG" --build-arg "KEYCLOAK_BASE=$KEYCLOAK_IMAGE" identity/keycloak >/dev/null || { echo "Keycloak 이미지를 만들지 못했다"; exit 1; }
-echo "== 기동 (keycloak-db -> keycloak -> oauth2-proxy -> 공개 입구)"
-dcp up -d --wait --wait-timeout 300 keycloak keycloak-gw >"$W/up1.log" 2>&1; ok "keycloak healthy (realm openit 가져오기 포함)" test "$(dcp ps -q keycloak | xargs -r $DOCKER inspect --format '{{.State.Health.Status}}')" = healthy
-dcp up -d --wait --wait-timeout 120 oauth2-proxy oauth2-proxy-gw gateway >"$W/up2.log" 2>&1; ok "공개 입구가 응답한다(/healthz)" bash -c "for i in \$(seq 1 30); do curl -sk -m 3 -o /dev/null -w '%{http_code}' https://127.0.0.1:$PORT/healthz | grep -q 200 && exit 0; sleep 1; done; exit 1"   # 준비 확인: 응답이 올 때까지(재시도 덧붙임이 아니라 기동 대기)
-KCC=$(dcp ps -q keycloak)
-ok "keycloak 환경 변수에 비밀 값이 없다(파일 경로만, D84)" bash -c "! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $SECRETS_DIR/tokens/db-keycloak-password)\""
+echo "== 기동 (identity-db -> identity -> identity-proxy -> 공개 입구)"
+dcp up -d --wait --wait-timeout 300 identity identity-gw >"$W/up1.log" 2>&1; ok "identity(Keycloak) healthy (realm openit 가져오기 포함)" test "$(dcp ps -q identity | xargs -r $DOCKER inspect --format '{{.State.Health.Status}}')" = healthy
+dcp up -d --wait --wait-timeout 120 identity-proxy identity-proxy-gw gateway >"$W/up2.log" 2>&1; ok "공개 입구가 응답한다(/healthz)" bash -c "for i in \$(seq 1 30); do curl -sk -m 3 -o /dev/null -w '%{http_code}' https://127.0.0.1:$PORT/healthz | grep -q 200 && exit 0; sleep 1; done; exit 1"   # 준비 확인: 응답이 올 때까지(재시도 덧붙임이 아니라 기동 대기)
+KCC=$(dcp ps -q identity)
+ok "identity 프로세스 환경에 비밀 값이 없다(파일만, D84)" bash -c "! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $IDP_SECRETS/db-identity)\" && ! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $IDP_SECRETS/identity-client-secret)\""
 ok "시험 사용자를 Keycloak 에 만든다(운영 입구: kcadm)" bash identity/scripts/idp-test-users.sh "$KCC"
 echo "== 로그인·역할 (공개 입구 경유)"
 export W PORT KCC; PYTHONPATH=identity/tests "$PY" -I -W ignore - <<'PY' || FAILS=$((FAILS+1))

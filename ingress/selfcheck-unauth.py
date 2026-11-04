@@ -5,7 +5,7 @@
  - auth.kind=account|authenticated: /v1/ 경로는 401 + WWW-Authenticate: Bearer realm="openit" + BoundaryError(PERMISSION_DENIED); 그 밖의 GET 화면은 Accept: text/html 이면 302 /oauth2/start, html 이 아니면 401
  - 선언에 없는 /v1/ 경로: 404 BoundaryError(NOT_FOUND)
  - auth.kind=none·denied·machine-token 은 기대 행을 만들지 않는다(없는 인증을 점검할 수 없고, 상류가 답하므로 공개 입구가 정하는 응답이 아니다)
-사용: selfcheck-unauth <https://주소:포트> [--cacert 파일 | --insecure] [--exposures 폴더...]   기본 폴더: /etc/openit/exposures-builtin /etc/openit/exposures
+사용: selfcheck-unauth <https://주소:포트> --cacert <공개 입구 인증서를 검증할 루트 PEM> [--exposures 폴더...]   기본 폴더: /etc/openit/exposures-builtin /etc/openit/exposures
 출력: 줄마다 PASS 또는 FAIL 과 근거. 종료 코드 0 모두 일치, 1 어긋남, 2 입력 오류(선언 없음·계약 위반). 비밀 값 없음."""
 import json, pathlib, ssl, sys, urllib.error, urllib.request
 
@@ -63,11 +63,10 @@ def body_code(b):
 def main(argv):
     if not argv or argv[0].startswith("-"):
         print(__doc__.split("사용:")[1].split("\n")[0], file=sys.stderr); return 2
-    base, args, cafile, insecure, dirs = argv[0].rstrip("/"), argv[1:], None, False, []
+    base, args, cafile, dirs = argv[0].rstrip("/"), argv[1:], None, []
     i = 0
     while i < len(args):
         if args[i] == "--cacert": cafile = args[i + 1]; i += 2
-        elif args[i] == "--insecure": insecure = True; i += 1
         elif args[i] == "--exposures":
             i += 1
             while i < len(args) and not args[i].startswith("--"): dirs.append(args[i]); i += 1
@@ -86,8 +85,9 @@ def main(argv):
         if errs:
             print(f"{f.name}: Exposure 선언이 계약을 어겼다", file=sys.stderr); return 2
         exposures.append(d)
-    ctx = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
-    if insecure: ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    if not cafile:
+        print("--cacert 가 필요하다(인증서 검증을 끄지 않는다)", file=sys.stderr); return 2
+    ctx = ssl.create_default_context(cafile=cafile)
     bad = n = 0
 
     def report(ok, what, detail=""):

@@ -1,4 +1,6 @@
-# 컴포넌트 배포 입력 (monitoring, backup-store, step-ca)
+# 컴포넌트 배포 입력 (monitoring, backup-store, step-ca 등)
+
+환경 변수의 이름·기본값은 계약 Env 스키마가 정본이다(`docs/boundary.md` 의 "이미지 입력" 절). 이 문서는 마운트·역할 같은 스키마 밖의 운영 사실만 적는다. 아래 환경 변수 표기는 설명용이다.
 
 모두 비루트, 읽기 전용 루트(`--read-only`), `--cap-drop ALL`, `no-new-privileges`. 빌드: `bash scripts/build-image.sh <요청>`(variant `monitoring|backup-store|step-ca`). 라벨 `io.openit.*` 는 BuildImageResult 로 검증된다. 비밀 값은 파일로만 받는다.
 
@@ -28,4 +30,13 @@ targets 파일 형식: `metrics.yml` 은 `- targets: ['<서비스>:443']`, `read
 HEALTHCHECK 는 이미지에 있다(CA 는 `step ca health`, 인증서 컨테이너는 만료 포함 검증).
 
 ## public-ingress 자체 점검 명령
-`selfcheck-unauth <https://주소:포트> [--cacert 파일 | --insecure]`: 인자·종료 코드·기대 행은 `docs/boundary.md` 의 "공개 입구 자체 점검 명령" 절. 선언 폴더(`/etc/openit/exposures`)는 공개 입구를 띄울 때와 같은 것을 마운트한다.
+`selfcheck-unauth <https://주소:포트> --cacert 파일`: 인자·종료 코드·기대 행은 `docs/boundary.md` 의 "공개 입구 자체 점검 명령" 절. 선언 폴더(`/etc/openit/exposures`)는 공개 입구를 띄울 때와 같은 것을 마운트한다.
+
+## 상태 폴더는 이미지가 VOLUME 으로 선언한다
+배치는 `docker image inspect` 의 `Config.Volumes` 를 읽어 마운트하고 경로를 따로 알지 않는다: step-ca `/home/step`·`/tokens`·`/certs`, monitoring `/prometheus`·`/alertmanager`, backup-store `/data`, public-ingress `/data`(internal 모드의 사설 CA)·`/config`, identity-db `/var/lib/postgresql/data`(공식 postgres 선언 그대로). 시험: `tests/test_env_contract.py::test_state_folders_are_declared_as_docker_volumes`.
+
+## 공개 입구의 사설 CA 를 믿는 길 (`export-root`)
+`docker run --rm --volumes-from <공개 입구 컨테이너> -v <출력 폴더>:/out --user 10001:10001 <public-ingress 이미지> export-root /out` → `/out/root_ca.crt`(공개 인증서). 루트는 internal 모드 첫 기동 때 `/data` 에 생기므로 같은 `/data` 볼륨을 써야 한다(없으면 종료 1). 감시는 이 파일을 step-ca 루트와 이어 붙인 한 파일(여러 PEM 허용)을 `MONITORING_ROOT_CA` 로 받는다. 시험: `ingress/tests/test-gateway-auth.sh`(내보낸 루트로 인증서 검증), `tests/test_env_contract.py`(이어 붙인 묶음 수용·쓰레기 거부).
+
+## monitoring node 역할의 입력 (스키마 밖의 마운트)
+`node`: `/host`(호스트 `/` 읽기 전용: 파일시스템·시계 수집), `/textfile`(읽기 전용: 주기 잡이 쓴 지표 파일). 환경 변수는 없다.

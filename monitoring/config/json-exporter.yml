@@ -2,7 +2,7 @@
 modules:
   gate_judging:
     http_client_config:
-      tls_config: {ca_file: /etc/openit/pki/root_ca.crt}   # release-gate 영역 게이트웨이 인증서 검증
+      tls_config: {ca_file: @ROOT_CA@}   # release-gate 영역 게이트웨이 인증서 검증
     valid_status_codes: [200, 503]   # json_exporter 모듈 필드(기본은 2xx 만)
     metrics:
       - name: openit_gate_judging_consecutive_failures

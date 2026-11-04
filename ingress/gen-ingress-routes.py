@@ -8,7 +8,7 @@
 import json, pathlib, re, sys
 
 ROLE_RE = r"(^|,)(%s)(,|$)"
-CA = "/etc/openit/pki/root_ca.crt"
+CA = "{$INGRESS_ROOT_CA}"   # 계약 PublicIngressEnv.INGRESS_ROOT_CA (Caddy 가 설정을 읽을 때 환경에서 치환한다)
 PERM = lambda msg, extra="": '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"PERMISSION_DENIED","message":"%s","retryable":false%s}' % (msg, extra)
 PENDING = PERM("account pending approval", ',"details":{"reason":"ACCOUNT_PENDING_APPROVAL"}')
 NOTFOUND = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}'
@@ -43,7 +43,7 @@ def proxy(host, r, mode):
     else:
         out += ["\theader_up -X-Openit-User", "\theader_up -X-Openit-Roles"]
     if r.get("upstream_token"):
-        out.append('\theader_up Authorization "Bearer {file./run/secrets/%s}"' % r["upstream_token"])
+        out.append('\theader_up Authorization "Bearer {file.{$INGRESS_UPSTREAM_TOKENS_DIR}/%s}"' % r["upstream_token"])
     elif mode != "device_token":
         out.append("\theader_up -Authorization")   # 클라이언트 자격은 서비스로 넘기지 않는다(기기 토큰 호환 경로 제외)
     if r.get("streaming"):

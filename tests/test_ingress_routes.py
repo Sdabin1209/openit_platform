@@ -58,7 +58,7 @@ def run_with_builtin(*exposures):
 
 def test_builtin_human_auth_routes_are_generated():
     r = run_with_builtin(ex("a", "/v1/y"))
-    assert r.returncode == 0 and "path /oauth2/*" in r.stdout and "path /auth/*" in r.stdout and "https://keycloak" in r.stdout and "https://oauth2-proxy" in r.stdout
+    assert r.returncode == 0 and "path /oauth2/*" in r.stdout and "path /auth/*" in r.stdout and "https://identity" in r.stdout and "https://identity-proxy" in r.stdout
 
 
 def test_area_declaration_overlapping_a_builtin_path_refuses_to_start():

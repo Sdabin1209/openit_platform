@@ -1,6 +1,6 @@
-# 사람 인증 구성요소(Keycloak, oauth2-proxy)와 공개 입구를 실제 이미지로 함께 띄우는 개발·시험 구성(D22 compose.dev.yaml). 운영 배치는 deploy 가 정한다.
-# 이 파일은 tests/test-idp-smoke.sh 가 변수를 채워 쓴다. 이웃 영역은 없다(인증을 통과한 요청은 상류 부재로 503/504 가 된다).
-# 서비스 TLS: 영역 게이트웨이 이미지(platform area-gateway)가 서비스 이름 인증서로 TLS 를 끝내고 127.0.0.1 의 앱으로 넘긴다(ADR 0001). 인증서는 시험 PKI 한 벌(SAN: 모든 서비스 이름).
+# 사람 인증 구성요소(identity, identity-proxy, identity-db)와 공개 입구를 지금 빌드한 platform 이미지로 함께 띄우는 개발·시험 구성(D22 compose.dev.yaml). 운영 배치는 deploy 가 정한다.
+# 이 파일은 tests/test-idp-smoke.sh 가 변수를 채워 쓴다. 이웃 영역은 없다(인증을 통과한 요청은 상류 부재로 5xx 가 된다).
+# 각 이미지는 계약 Env 스키마(IdentityEnv, IdentityProxyEnv, AreaDatabaseEnv, AreaGatewayEnv, PublicIngressEnv)의 이름만 받는다. 서비스 TLS 는 영역 게이트웨이 이미지가 서비스 이름 인증서로 끝낸다(ADR 0001).
 x-hardening: &hardening
   restart: "no"
   security_opt: ["no-new-privileges:true"]
@@ -19,118 +19,70 @@ x-areagw: &areagw
   image: ${AREA_GATEWAY_IMAGE:?}
   user: "101:101"
   tmpfs: ["/tmp"]
-  volumes: ["${PKI_DIR:?}/certs:/certs:ro"]
 networks:
   auth: {}
   db: {internal: true}
 secrets:
-  db-keycloak-password: {file: "${SECRETS_DIR:?}/tokens/db-keycloak-password"}
-  keycloak-secrets.conf: {file: "${SECRETS_DIR}/keycloak-secrets.conf"}
-  keycloak-realm.json: {file: "${SECRETS_DIR}/keycloak-realm.json"}
-  oauth2-proxy-client-secret: {file: "${SECRETS_DIR}/tokens/oauth2-proxy-client-secret"}
-  oauth2-proxy-cookie-secret: {file: "${SECRETS_DIR}/tokens/oauth2-proxy-cookie-secret"}
-volumes:
-  keycloak-db-data: {}
-  pgtls: {name: "${PGTLS_VOLUME:?}", external: true}   # 서버 키는 postgres 사용자(999) 소유 0600 이어야 한다: 시험 스크립트가 미리 만든 볼륨
+  identity-client-secret: {file: "${IDP_SECRETS:?}/identity-client-secret"}
+  identity-cookie-secret: {file: "${IDP_SECRETS}/identity-cookie-secret"}
+  identity-admin-password: {file: "${IDP_SECRETS}/identity-admin-password"}
+  identity-initial-admin-password: {file: "${IDP_SECRETS}/identity-initial-admin-password"}
+  identity-db-url: {file: "${IDP_SECRETS}/identity-db-url"}
+  postgres-password: {file: "${IDP_SECRETS}/postgres-password"}
+  db-identity: {file: "${IDP_SECRETS}/db-identity"}
 services:
-  keycloak-db:
+  identity-db:
     <<: *hardening
-    image: ${POSTGRES_IMAGE:?}
-    user: "999:999"
-    environment: {POSTGRES_USER: keycloak, POSTGRES_DB: keycloak, POSTGRES_PASSWORD_FILE: /run/secrets/db-keycloak-password}
-    secrets: [db-keycloak-password]
+    image: ${IDENTITY_DB_IMAGE:?}
     group_add: ["${SECRETS_GID:?}"]
-    volumes: ["keycloak-db-data:/var/lib/postgresql/data", "pgtls:/etc/openit/pg-tls:ro", "${PKI_DIR}/pg_hba.conf:/etc/openit/pg_hba.conf:ro"]
+    environment: {POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password}
+    secrets: [postgres-password, {source: db-identity, target: db/identity}]
+    volumes: ["${PKI_DIR:?}/certs:/certs:ro", "identity-db-data:/var/lib/postgresql/data"]
     tmpfs: ["/tmp", "/var/run/postgresql:uid=999,gid=999"]
-    networks: {db: {aliases: [keycloak-db]}}
-    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/etc/openit/pg-tls/server.crt", "-c", "ssl_key_file=/etc/openit/pg-tls/server.key", "-c", "hba_file=/etc/openit/pg_hba.conf", "-c", "log_statement=none"]
-    healthcheck: {test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "keycloak", "-d", "keycloak"], interval: 5s, timeout: 3s, retries: 20, start_period: 10s}
-  keycloak-net:
+    networks: {db: {aliases: [identity-db]}}
+    healthcheck: {test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"], interval: 5s, timeout: 3s, retries: 30, start_period: 10s}
+  identity-net:
     <<: *pause
-    networks: {auth: {aliases: [keycloak]}, db: {}}
-  keycloak:
+    networks: {auth: {aliases: [identity]}, db: {}}
+  identity:
     <<: *hardening
-    image: ${KEYCLOAK_OPTIMIZED_IMAGE:?}
-    network_mode: "service:keycloak-net"
+    image: ${IDENTITY_IMAGE:?}
+    network_mode: "service:identity-net"
     group_add: ["${SECRETS_GID}"]
     tmpfs: ["/tmp", "/opt/keycloak/data/tmp", "/opt/keycloak/data/import"]
     volumes: ["${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro"]
-    command: ["--config-file=/run/secrets/keycloak-secrets.conf", "start", "--optimized", "--import-realm"]   # 비밀은 환경 변수가 아니라 설정 파일로 받는다(D84)
-    environment:
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak?sslmode=verify-full&sslrootcert=/etc/openit/pki/root_ca.crt
-      KC_DB_USERNAME: keycloak
-      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
-      KC_HTTP_HOST: 127.0.0.1
-      KC_HTTP_ENABLED: "true"
-      KC_HTTP_RELATIVE_PATH: /auth
-      KC_HOSTNAME: ${PUBLIC_URL:?}/auth
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
-      KC_PROXY_HEADERS: xforwarded
-      KC_HEALTH_ENABLED: "true"
-      KC_CACHE: local
-      KC_LOG: console
-    secrets:
-      - keycloak-secrets.conf
-      - {source: keycloak-realm.json, target: /opt/keycloak/data/import/openit-realm.json}
-    depends_on: {keycloak-db: {condition: service_healthy}}
+    environment: {IDENTITY_PUBLIC_URL: "${PUBLIC_URL:?}"}
+    secrets: [identity-client-secret, identity-admin-password, identity-initial-admin-password, identity-db-url]
+    depends_on: {identity-db: {condition: service_healthy}}
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 60s
-  keycloak-gw:
+  identity-gw:
     <<: *areagw
-    network_mode: "service:keycloak-net"
+    network_mode: "service:identity-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:8080"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR:?}/keycloak.json:/etc/openit/exposure.json:ro"]
-    depends_on: {keycloak: {condition: service_healthy}}
-  oauth2-proxy-net:
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR:?}/identity.json:/etc/openit/exposure.json:ro"]
+    depends_on: {identity: {condition: service_healthy}}
+  identity-proxy-net:
     <<: *pause
-    networks: {auth: {aliases: [oauth2-proxy]}}
-  oauth2-proxy:
+    networks: {auth: {aliases: [identity-proxy]}}
+  identity-proxy:
     <<: *hardening
-    image: ${OAUTH2_PROXY_IMAGE:?}
-    network_mode: "service:oauth2-proxy-net"
+    image: ${IDENTITY_PROXY_IMAGE:?}
+    network_mode: "service:identity-proxy-net"
     group_add: ["${SECRETS_GID}"]
     volumes: ["${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro"]
-    secrets: [oauth2-proxy-client-secret, oauth2-proxy-cookie-secret]
-    environment:
-      OAUTH2_PROXY_PROVIDER: oidc   # keycloak-oidc 가 아니다: 그 공급자는 realm 역할을 role:<이름> 그룹으로 섞어 X-Openit-Roles 에 잡음이 들어간다(deploy 스모크 시험이 잡았다)
-      OAUTH2_PROXY_CLIENT_ID: openit-gateway
-      OAUTH2_PROXY_CLIENT_SECRET_FILE: /run/secrets/oauth2-proxy-client-secret
-      OAUTH2_PROXY_COOKIE_SECRET_FILE: /run/secrets/oauth2-proxy-cookie-secret
-      OAUTH2_PROXY_SKIP_OIDC_DISCOVERY: "true"
-      OAUTH2_PROXY_OIDC_ISSUER_URL: ${PUBLIC_URL}/auth/realms/openit
-      OAUTH2_PROXY_LOGIN_URL: ${PUBLIC_URL}/auth/realms/openit/protocol/openid-connect/auth
-      OAUTH2_PROXY_PROVIDER_CA_FILES: /etc/openit/pki/root_ca.crt
-      OAUTH2_PROXY_REDEEM_URL: https://keycloak/auth/realms/openit/protocol/openid-connect/token
-      OAUTH2_PROXY_OIDC_JWKS_URL: https://keycloak/auth/realms/openit/protocol/openid-connect/certs
-      OAUTH2_PROXY_REDIRECT_URL: ${PUBLIC_URL}/oauth2/callback
-      OAUTH2_PROXY_HTTP_ADDRESS: 127.0.0.1:4180
-      OAUTH2_PROXY_UPSTREAMS: static://202
-      OAUTH2_PROXY_REVERSE_PROXY: "true"
-      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
-      OAUTH2_PROXY_OIDC_GROUPS_CLAIM: groups
-      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL: "true"
-      OAUTH2_PROXY_SCOPE: openid profile email
-      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
-      OAUTH2_PROXY_COOKIE_NAME: _openit_session
-      OAUTH2_PROXY_COOKIE_SECURE: "true"
-      OAUTH2_PROXY_COOKIE_SAMESITE: lax
-      OAUTH2_PROXY_COOKIE_EXPIRE: 8h
-      OAUTH2_PROXY_COOKIE_REFRESH: 5m
-      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-      OAUTH2_PROXY_AUTH_LOGGING: "true"
-      SSL_CERT_FILE: /etc/openit/pki/root_ca.crt
-    depends_on: {keycloak-gw: {condition: service_started}}
-  oauth2-proxy-gw:
+    environment: {IDENTITY_PUBLIC_URL: "${PUBLIC_URL}"}
+    secrets: [identity-client-secret, identity-cookie-secret]
+    depends_on: {identity-gw: {condition: service_started}}
+  identity-proxy-gw:
     <<: *areagw
-    network_mode: "service:oauth2-proxy-net"
+    network_mode: "service:identity-proxy-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:4180"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR}/oauth2-proxy.json:/etc/openit/exposure.json:ro"]
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR}/identity-proxy.json:/etc/openit/exposure.json:ro"]
   gateway:
     <<: *hardening
     image: ${INGRESS_IMAGE:?}
@@ -140,13 +92,14 @@ services:
     networks: [auth]
     ports: ["127.0.0.1:${PUBLIC_PORT:?}:8443"]
     environment:
-      GATEWAY_TLS_MODE: files   # 시험 PKI 의 서버 인증서(IP SAN 포함)를 쓴다: 시험 클라이언트가 루트 인증서 하나만 신뢰한다
-      GATEWAY_HOSTS: "${GATEWAY_HOSTS:-localhost:8443, 127.0.0.1:8443}"
-      GATEWAY_HOST_NAMES: "${GATEWAY_HOST_NAMES:?}"
+      GATEWAY_TLS_MODE: files   # 시험 PKI 의 서버 인증서(IP SAN 포함): 시험 클라이언트가 루트 인증서 하나만 신뢰한다
+      GATEWAY_HOSTS: "${GATEWAY_HOSTS:-127.0.0.1:8443, localhost:8443}"
+      GATEWAY_PUBLIC_TLS_PORT: "${PUBLIC_PORT}"
     volumes:
       - ${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro
-      - ${PKI_DIR}/certs/tls.crt:/etc/openit/gateway-tls/server.crt:ro
+      - ${PKI_DIR}/certs:/etc/openit/ingress-tls:ro
       - ${EXPOSURES_DIR:?}:/etc/openit/exposures:ro
-      - ${SECRETS_DIR}/gateway-devices.caddy:/etc/caddy/devices.caddy:ro
-      - ${SECRETS_DIR}/tokens:/run/secrets:ro
-    depends_on: {oauth2-proxy-gw: {condition: service_started}, keycloak-gw: {condition: service_started}}
+      - ${SECRETS_DIR:?}/tokens:/run/secrets:ro
+    depends_on: {identity-proxy-gw: {condition: service_started}, identity-gw: {condition: service_started}}
+volumes:
+  identity-db-data: {}

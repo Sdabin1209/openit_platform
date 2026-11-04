@@ -5,9 +5,9 @@
 # 제품 구성(compose.yaml)과 realm 가져오기 파일에는 시험 사용자가 없다. 암호는 kcadm 의 인자로 keycloak 컨테이너 안 프로세스 목록에 잠깐 보인다(시험 전용 무작위 값, 컨테이너 밖에는 나오지 않는다).
 set -euo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
-C=${1:?keycloak 컨테이너 이름}; D=${SECRETS_DIR:?SECRETS_DIR}; ACC=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
+C=${1:?keycloak 컨테이너 이름}; D=${SECRETS_DIR:?SECRETS_DIR}; IDP=${IDP_SECRETS:?IDP_SECRETS}; ACC=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 KC() { "$DOCKER" exec -i "$C" /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config </dev/null; }   # </dev/null: exec 이 아래 while read 의 표준 입력(사용자 목록)을 먹지 않게 한다
-kc_pw=$(tr -d '\r\n' < "$D/tokens/keycloak-bootstrap-admin-password")
+kc_pw=$(tr -d "\r\n" < "$IDP/identity-admin-password")
 KC config credentials --server http://127.0.0.1:8080/auth --realm master --user kcadmin --password "$kc_pw" >/dev/null 2>&1 || die "Keycloak 관리 로그인 실패(keycloak 컨테이너가 healthy 인지 확인)"
 unset kc_pw
 n=0

@@ -1,0 +1,19 @@
+# platform 사람 인증 DB identity-db(공식 postgres:16 위, D126: DB 초기화는 그 데이터 주인의 이미지 안). 입력은 계약 AreaDatabaseEnv 뿐이다: 계정·권한·접속 규칙(pg_hba)·TLS 는 이미지가 DatabaseDeclaration(라벨 io.openit.database)대로 만든다.
+ARG POSTGRES_IMAGE=docker.io/library/postgres@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+ARG GO_BUILDER=docker.io/library/caddy@sha256:c4cd20eaa0b69112fd5d4f721ffc9671687e1d5d0b155c8620cf7546dbef94c0
+FROM ${GO_BUILDER} AS envcheck
+COPY --from=common . /src/
+RUN cd /src && CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /envcheck ./cmd/envcheck
+FROM ${POSTGRES_IMAGE}
+ARG COMMIT=unknown
+ARG BOUNDARY_TAG=unknown
+COPY --from=envcheck /envcheck /usr/local/bin/envcheck
+COPY --from=boundary_contracts schemas/AreaDatabaseEnv.schema.json /etc/openit/schemas/
+COPY db/database.json /etc/openit/database.json
+COPY --chmod=755 db/entrypoint.sh /usr/local/bin/identity-db-entrypoint.sh
+COPY --chmod=755 db/10-accounts.sh /docker-entrypoint-initdb.d/10-accounts.sh
+LABEL io.openit.service="identity-db" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a" \
+      io.openit.database='{"engine":"postgresql","major":16,"port":5432,"accounts":[{"name":"identity","database":"identity","privilege":"owner","url_env":["IDENTITY_DB_URL_FILE"]}]}'
+USER postgres
+ENTRYPOINT ["/usr/local/bin/identity-db-entrypoint.sh"]
+CMD ["postgres"]

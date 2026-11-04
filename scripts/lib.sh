@@ -5,15 +5,6 @@ DOCKER=${DOCKER:-docker}
 PY="$ROOT/.venv/bin/python"; DEPLOY_PY=$PY   # kiosk-add-device.sh 가 쓰는 이름
 SECRETS_GID="${SECRETS_GID:-$(id -g)}"
 die() { echo "오류: $*" >&2; exit 1; }
-gateway_host_names() {
-  local h out="" list=${GATEWAY_HOSTS:-localhost:8443, 127.0.0.1:8443}
-  for h in ${list//,/ }; do
-    h=${h%:*}; [[ "$h" =~ ^[A-Za-z0-9.-]+$ ]] || die "GATEWAY_HOSTS 의 호스트 이름 규칙 위반(영문·숫자·.·- 만): '$h'"
-    out+="${out:+, }\"$h\""
-  done
-  [ -n "$out" ] || die "GATEWAY_HOSTS 가 비었다"
-  echo "$out"
-}
 gateway_public_url() {
   local first=${GATEWAY_HOSTS:-localhost:8443, 127.0.0.1:8443} p=${GATEWAY_PUBLIC_TLS_PORT:-8443}
   first=${first%%,*}; first=${first// /}; first=${first%:*}
@@ -34,4 +25,3 @@ gateway_test_mounts() { # gateway_test_mounts <gateway_test_pki 폴더>: 게이�
   printf '%s\n' -v "$ROOT/ingress/config/gateway-tls:/etc/caddy/gateway-tls:ro" -v "$1/root_ca.crt:/etc/openit/pki/root_ca.crt:ro" -e GATEWAY_TLS_MODE=internal
 }
 secret_fix() { chmod 640 "$1"; chgrp "$SECRETS_GID" "$1" 2>/dev/null || true; }
-export GATEWAY_HOST_NAMES="${GATEWAY_HOST_NAMES:-$(gateway_host_names)}"   # 게이트웨이 CSRF 허용 호스트 이름(GatewayEnv): GATEWAY_HOSTS 에서 만든다

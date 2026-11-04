@@ -1,5 +1,5 @@
 # platform 감시 Prometheus 설정(ADR 0010). 계약: RUNTIME R10.11(영역 /metrics 는 영역 게이트웨이를 거쳐 TLS 로 10초 안에 수집, 정적 화면 서버는 /readyz 탐침만, 수집 실패는 up=0), R5.1(/healthz·/readyz 는 상태 코드와 본문을 함께 본다).
-# 대상은 배포가 파일로 준다(file_sd, 마운트 /etc/openit/monitoring/targets/): metrics.yml(/metrics 를 내는 영역 서비스), readyz.yml(/readyz 를 탐침할 서비스 = 정적 화면 서버 포함), public.yml(공개 입구 /healthz). 비어 있어도(`[]`) 시작한다.
+# 대상은 배포가 파일로 준다(file_sd, 마운트 @TARGETS_DIR@/): metrics.yml(/metrics 를 내는 영역 서비스), readyz.yml(/readyz 를 탐침할 서비스 = 정적 화면 서버 포함), public.yml(공개 입구 /healthz). 비어 있어도(`[]`) 시작한다.
 # 서버 전체가 죽으면 이 서버의 Prometheus 도 죽으므로 서버 밖 감시(D10)는 public.yml 의 대상이 서버 밖에서 보는 주소일 때의 몫이다.
 global:
   scrape_interval: 1m        # Prometheus 기본값(측정 안 함). 옛 check-health timer 는 5분 주기였다
@@ -18,15 +18,15 @@ scrape_configs:
     metrics_path: /metrics
     scheme: https
     scrape_timeout: 10s     # R10.11 의 10초. Prometheus 기본(10s)과 같지만 계약 값이므로 명시한다(기본이 바뀌어도 계약은 유지)
-    tls_config: {ca_file: /etc/openit/pki/root_ca.crt}
-    file_sd_configs: [{files: [/etc/openit/monitoring/targets/metrics.yml]}]
+    tls_config: {ca_file: @ROOT_CA@}
+    file_sd_configs: [{files: [@TARGETS_DIR@/metrics.yml]}]
     relabel_configs:
       - {source_labels: [__address__], regex: '([^:]+)(:\d+)?', target_label: service}   # 서비스 이름(인증서 이름)을 라벨로
   # R5.1·R10.11: /readyz 탐침. /metrics 가 없는 정적 화면 서버(kiosk-frontend·admin-console)는 이것만으로 본다. 대상은 전체 URL(https://<서비스>/readyz).
   - job_name: probe-readyz
     metrics_path: /probe
     params: {module: [readyz]}
-    file_sd_configs: [{files: [/etc/openit/monitoring/targets/readyz.yml]}]
+    file_sd_configs: [{files: [@TARGETS_DIR@/readyz.yml]}]
     relabel_configs: &blackbox_relabel
       - {source_labels: [__address__], target_label: __param_target}
       - {source_labels: [__param_target], target_label: instance}
@@ -34,12 +34,12 @@ scrape_configs:
   - job_name: probe-public   # 공개 입구 /healthz(R10.6: 인증서 남은 수명도 같은 탐침으로 본다)
     metrics_path: /probe
     params: {module: [public_healthz]}
-    file_sd_configs: [{files: [/etc/openit/monitoring/targets/public.yml]}]
+    file_sd_configs: [{files: [@TARGETS_DIR@/public.yml]}]
     relabel_configs: *blackbox_relabel
   - job_name: gate-judging   # release-gate /readyz 의 judging_loop(GateReadyz)를 숫자로 읽는다. 대상은 gate.yml(없거나 비면 읽지 않는다)
     metrics_path: /probe
     params: {module: [gate_judging]}
-    file_sd_configs: [{files: [/etc/openit/monitoring/targets/gate.yml]}]
+    file_sd_configs: [{files: [@TARGETS_DIR@/gate.yml]}]
     relabel_configs:
       - {source_labels: [__address__], target_label: __param_target}
       - {source_labels: [__param_target], target_label: instance}

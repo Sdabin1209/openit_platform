@@ -7,7 +7,7 @@ modules:
       method: GET
       preferred_ip_protocol: ip4
       follow_redirects: false
-      tls_config: {ca_file: /etc/openit/pki/root_ca.crt}
+      tls_config: {ca_file: @ROOT_CA@}
       fail_if_body_not_matches_regexp: ['"status": *"[^"]+"']
   public_healthz:   # 공개 입구. 공인 ACME 면 시스템 루트, 사설이면 설치처 루트(SSL_CERT_FILE 마운트, COMPONENTS.md)
     prober: http
