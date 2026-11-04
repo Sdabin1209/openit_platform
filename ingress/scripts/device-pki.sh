@@ -14,7 +14,8 @@ case "${1:-}" in
     banner; [ ! -e "$D/ca.key" ] || die "이미 있다: $D/ca.key (지우고 다시 만들려면 폴더를 먼저 치운다)"
     ( umask 077; mkdir -p "$D"; chmod 700 "$D"
       openssl req -x509 -newkey rsa:2048 -nodes -keyout "$D/ca.key" -out "$D/ca.crt" -days 30 -subj "/O=openit TEST ONLY/CN=openit-test-device-ca" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null )
-    chmod 600 "$D/ca.key"; echo "일회용 CA 를 만들었다(유효 30일): $D/ca.crt";;
+    chmod 600 "$D/ca.key"; chmod 644 "$D/ca.crt"   # CA 인증서는 공개 값이다: 컨테이너(비루트)가 INGRESS_DEVICE_CA_FILE 로 읽는다
+    echo "일회용 CA 를 만들었다(유효 30일): $D/ca.crt";;
   issue)
     ID=${2:?기기 ID}; [[ "$ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || die "기기 ID 형식 위반: $ID"
     [ -f "$D/ca.key" ] || die "먼저 init: $0 init"; banner
