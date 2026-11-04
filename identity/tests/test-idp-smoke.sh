@@ -10,7 +10,7 @@ FAILS=0; N=0
 ok() { N=$((N+1)); local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | tail -2 | tr '\n' ' ' | cut -c1-220)"; FAILS=$((FAILS+1)); fi; }
 dcp() { "$DOCKER" compose -p "$P" -f "$ROOT/identity/compose.dev.yaml" "$@"; }
 cleanup() {
-  if [ "$FAILS" != 0 ] || [ "${KEEP:-0}" = 1 ]; then mkdir -p "${KEEP_DIR:-/tmp/platform-idp-logs-$ID}"; for s in identity identity-gw identity-proxy identity-proxy-gw gateway identity-db; do dcp logs --no-color "$s" > "${KEEP_DIR:-/tmp/platform-idp-logs-$ID}/$s.log" 2>&1; done; echo "로그를 남겼다: ${KEEP_DIR:-/tmp/platform-idp-logs-$ID}"; fi
+  if [ "$FAILS" != 0 ] || [ "${KEEP:-0}" = 1 ]; then mkdir -p "${KEEP_DIR:-$ROOT/build/logs/idp-$ID}"; for s in identity identity-gw identity-proxy identity-proxy-gw gateway identity-db; do dcp logs --no-color "$s" > "${KEEP_DIR:-$ROOT/build/logs/idp-$ID}/$s.log" 2>&1; done; echo "로그를 남겼다: ${KEEP_DIR:-$ROOT/build/logs/idp-$ID}"; fi
   dcp down -v --remove-orphans >/dev/null 2>&1
   "$DOCKER" rmi "$GW_IMG" "$ING_IMG" "$IDP_IMG" "$PRX_IMG" "$DB_IMG" >/dev/null 2>&1; rm -rf "$W"
 }

@@ -51,7 +51,7 @@ def wait(fn, what, seconds=60):
 
 def main():
     st = Stack("platform-smoke")
-    keep = pathlib.Path(os.environ.get("KEEP_DIR", f"/tmp/platform-smoke-{st.tag}"))
+    keep = pathlib.Path(os.environ.get("KEEP_DIR", str(ROOT / f"build/logs/smoke-{st.tag}")))
     tag = lambda v: f"platform-{v}:smoke-{st.tag}"
     imgs = []
     try:
