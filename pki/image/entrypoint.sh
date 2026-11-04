@@ -34,12 +34,26 @@ case "$cmd" in
   cert)
     n=${STEP_CERT_NAME:-}; [ -n "$n" ] || { echo "step-ca: STEP_ROLE=cert 에는 STEP_CERT_NAME 이 필요하다" >&2; exit 64; }
     export STEPPATH=/tmp
-    if ! step certificate verify $STEP_CERTS_DIR/tls.crt --roots "$ROOT" >/dev/null 2>&1; then
+    D=$STEP_CERTS_DIR
+    # 읽는 쪽(공개 입구·DB 등, 보조 그룹 STEP_CERT_GID)이 언제나 완성된 0640 키와 인증서만 보게 한다: 받은 결과를 같은 폴더의 임시 파일에 두고 모드·그룹을 맞춘 뒤 rename(2)으로 바꿔 넣는다(POSIX 원자적 교체, RUNTIME OUT-FILE 과 같은 방식).
+    # 키는 발급 때만 쓰이고 갱신(같은 키로 새 인증서)은 인증서 파일만 바꾼다. 인증서가 갱신 뒤에도 0644 로 같은 이름으로 보인다.
+    publish() { # publish <새 인증서> <새 키|""> : 모드 0644/0640 + 그룹 맞춘 뒤 키 먼저, 인증서 나중에 rename
+      chmod 0644 "$1"; if [ -n "$2" ]; then chgrp "$STEP_CERT_GID" "$2" && chmod 0640 "$2" && mv -f "$2" "$D/tls.key"; fi; mv -f "$1" "$D/tls.crt"
+    }
+    if ! step certificate verify $D/tls.crt --roots "$ROOT" >/dev/null 2>&1; then
       NA=""; [ -z "${STEP_CERT_NOT_AFTER:-}" ] || NA="--not-after $STEP_CERT_NOT_AFTER"
-      step ca certificate "$n" $STEP_CERTS_DIR/tls.crt $STEP_CERTS_DIR/tls.key --token "$(cat "$STEP_TOKENS_DIR/$n.ott")" --ca-url "$URL" --root "$ROOT" $NA --force >/dev/null
+      rm -f "$D/.tls.crt.new" "$D/.tls.key.new"
+      step ca certificate "$n" "$D/.tls.crt.new" "$D/.tls.key.new" --token "$(cat "$STEP_TOKENS_DIR/$n.ott")" --ca-url "$URL" --root "$ROOT" $NA --force >/dev/null || exit 1
+      publish "$D/.tls.crt.new" "$D/.tls.key.new"
     fi
-    /usr/local/bin/step-cert-perms   # 키 0640, 그룹 STEP_CERT_GID: 그 인증서를 읽는 컨테이너가 보조 그룹으로 읽는다(사용자 번호는 이미지가 정하고 deploy 는 모른다)
-    exec step ca renew --daemon --force --expires-in "$STEP_RENEW_EXPIRES_IN" --exec /usr/local/bin/step-cert-perms $STEP_CERTS_DIR/tls.crt $STEP_CERTS_DIR/tls.key --ca-url "$URL" --root "$ROOT" ;;
+    trap 'exit 0' TERM INT
+    while :; do   # 갱신: 남은 수명이 STEP_RENEW_EXPIRES_IN 보다 짧으면 같은 키로 새 인증서를 받는다. 인증기관이 멈춰 있으면 실패해도 발급된 인증서는 그대로 두고(R3.11) 다음 주기에 다시 한다. 점검 주기 5초는 측정하지 않은 값이다
+      if step certificate needs-renewal "$D/tls.crt" --expires-in "$STEP_RENEW_EXPIRES_IN" >/dev/null 2>&1; then
+        rm -f "$D/.tls.crt.new"
+        if step ca renew --force --out "$D/.tls.crt.new" "$D/tls.crt" "$D/tls.key" --ca-url "$URL" --root "$ROOT" >/dev/null 2>&1 && [ -s "$D/.tls.crt.new" ]; then publish "$D/.tls.crt.new" ""; fi
+      fi
+      sleep 5 & wait $!
+    done ;;
   health)   # 이미지 HEALTHCHECK: 역할마다 의미가 다르다. serve=CA 응답, cert=만료를 포함한 검증, root=루트 파일이 있음, token=이름마다 토큰이 있음
     case "$STEP_ROLE" in
       serve) step ca health 2>/dev/null | grep -q '^ok' ;;

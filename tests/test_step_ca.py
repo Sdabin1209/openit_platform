@@ -122,10 +122,10 @@ def test_issue_renew_ca_down_and_reissue_after_expiry(w):
 
 
 def test_mutation_without_renew_daemon_serial_stays(w):
-    """변이 1회: 갱신 데몬을 뺀 진입점에서는 serial 이 안 바뀐다 = (2) 의 판정이 갱신 데몬에 기댄다."""
+    """변이 1회: 갱신하지 않는 진입점에서는 serial 이 안 바뀐다 = (2) 의 판정이 갱신 루프에 기댄다."""
     src = (ROOT / "pki/image/entrypoint.sh").read_text()
-    assert "exec step ca renew --daemon" in src
-    (w.s.d / "mut.sh").write_text(src.replace("exec step ca renew --daemon", "exec sleep 3600; true"))
+    assert "step certificate needs-renewal" in src
+    (w.s.d / "mut.sh").write_text(src.replace("step certificate needs-renewal", "false step certificate needs-renewal"))   # 갱신 판정을 항상 아니오로
     (w.s.d / "mut.sh").chmod(0o755)
     sh("docker", "stop", f"cert-{w.s.tag}", check=False)   # 앞 시험의 인증서 컨테이너(같은 볼륨)가 갱신하지 않게
     sh("docker", "run", "--rm", "-v", f"{w.certs}:/certs", "--user", "0", "--entrypoint", "sh", IMAGE, "-c", "rm -f /certs/tls.*")
@@ -138,10 +138,52 @@ def test_mutation_without_renew_daemon_serial_stays(w):
         raise AssertionError("변이 컨테이너 첫 발급 실패:\n" + w.s.logs(c)[-800:])
     s0 = w.inspect("serial")
     time.sleep(50)
-    assert w.inspect("serial") == s0, "갱신 데몬이 없는데 serial 이 바뀌었다(시험이 갱신을 잡지 못한다)"
+    assert w.inspect("serial") == s0, "갱신하지 않는데 serial 이 바뀌었다(시험이 갱신을 잡지 못한다)"
     assert not w.verifies(), "40초 수명이 만료돼야 한다"
     for _ in range(60):   # 변이의 HEALTHCHECK: 만료된 인증서면 unhealthy
         if sh("docker", "inspect", "-f", "{{.State.Health.Status}}", c, check=False).stdout.strip() == "unhealthy": break
         time.sleep(3)
     else:
         raise AssertionError("만료된 인증서 컨테이너가 unhealthy 가 되지 않았다")
+
+
+def reader(w, seconds):
+    """다른 사용자(uid 10002)가 보조 그룹 10100 으로 키를 계속 읽는다(읽는 쪽 컨테이너: 공개 입구·DB 의 자리). (읽은 횟수, 실패 횟수)를 낸다."""
+    script = f'f=0; n=0; end=$(( $(date +%s) + {seconds} )); while [ $(date +%s) -lt $end ]; do n=$((n+1)); head -c1 /certs/tls.key >/dev/null 2>&1 || f=$((f+1)); sleep 0.05; done; echo "$n $f"'
+    r = sh("docker", "run", "--rm", "--user", "10002:10002", "--group-add", "10100", "-v", f"{w.certs}:/certs:ro", "--entrypoint", "sh", IMAGE, "-c", script, timeout=seconds + 60)
+    n, f = r.stdout.split()[-2:]
+    return int(n), int(f)
+
+
+def fresh_cert_container(w, name, entry=None):
+    sh("docker", "rm", "-f", *[f"{n}-{w.s.tag}" for n in ("cert", "mut", "certr", "mutr")], check=False)   # 같은 볼륨을 쓰는 앞 시험의 인증서 컨테이너를 치운다
+    sh("docker", "run", "--rm", "-v", f"{w.certs}:/certs", "--user", "0", "--entrypoint", "sh", IMAGE, "-c", "rm -rf /certs/tls.* /certs/.tls*")
+    w.token()
+    if entry is None:
+        return w.cert(name, ENV)
+    return w.s.run(name, *HARD[:5], "--tmpfs", "/tmp", *sum((["-e", e] for e in ENV), []), "-v", f"{w.certs}:/certs", "-v", f"{w.root}:/etc/openit/pki:ro", "-v", f"{w.tok}:/tokens:ro",
+                   "-v", f"{entry}:/m.sh:ro", "--entrypoint", "/m.sh", "-e", "STEP_ROLE=cert", "-e", f"STEP_CERT_NAME={NAME}", IMAGE)
+
+
+def test_renewal_never_exposes_an_unreadable_key_to_readers_in_the_group(w):
+    # 갱신을 여러 번 일으키는 45초 동안 다른 uid·같은 그룹 컨테이너가 키를 계속 읽어도 한 번도 실패하지 않는다(받은 결과를 임시 파일에서 맞춰 rename 으로 교체)
+    fresh_cert_container(w, "certr")
+    w.wait(lambda: w.inspect("serial"), 30, "첫 발급")
+    s0 = w.inspect("serial")
+    n, f = reader(w, 45)
+    assert w.inspect("serial") != s0, "관찰 동안 갱신이 일어나지 않았다(시험이 의미가 없다)"
+    assert n > 100 and f == 0, f"읽기 {n}번 중 {f}번 실패"
+    assert w.keystat() == ("640", "10100", "644")
+
+
+def test_mutation_in_place_update_with_a_later_mode_fix_makes_readers_fail(w):
+    # 변이: 갱신 뒤 키를 제자리에서 0600 으로 두었다가 나중에 0640 으로 되돌리는 방식(옛 --exec 후처리)이면 읽는 쪽이 실패한다 = 위 시험이 그 결함을 잡는다
+    src = (ROOT / "pki/image/entrypoint.sh").read_text()
+    old = 'publish "$D/.tls.crt.new" ""; fi'
+    assert old in src
+    (w.s.d / "mut2.sh").write_text(src.replace(old, 'publish "$D/.tls.crt.new" ""; chmod 0600 "$D/tls.key"; sleep 2; chmod 0640 "$D/tls.key"; fi'))
+    (w.s.d / "mut2.sh").chmod(0o755)
+    fresh_cert_container(w, "mutr", entry=str(w.s.d / "mut2.sh"))
+    w.wait(lambda: w.inspect("serial"), 30, "첫 발급")
+    n, f = reader(w, 45)
+    assert f > 0, f"변이인데 읽기 {n}번이 모두 성공했다(시험이 결함을 잡지 못한다)"
