@@ -74,7 +74,8 @@ def main():
         hosts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && echo $GATEWAY_HOST_NAMES").stdout.strip()
         st.run("public-ingress", "--network-alias", "ingress", "--user", "10001:10001", "--group-add", gid, *HARD, "--tmpfs", "/tmp:uid=10001,gid=10001", "--tmpfs", "/data:uid=10001,gid=10001", "--tmpfs", "/config:uid=10001,gid=10001",
                *mounts, "-e", f"GATEWAY_HOST_NAMES={hosts}", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/gateway-devices.caddy:/etc/caddy/devices.caddy:ro", "-v", f"{sec}/tokens:/run/secrets:ro", t)
-        got = wait(lambda: http(st, "http://ingress:8080/healthz"), "ingress")
+        # 준비 확인: 응답이 올 때까지(000 = 연결 실패는 아직 준비 전). 튜플은 늘 참이라 wait 가 첫 시도에서 끝나던 결함을 고쳤다
+        got = wait(lambda: (lambda r: r if r[0] != "000" else None)(http(st, "http://ingress:8080/healthz")), "ingress")
         check("public-ingress: /healthz 200 + {\"status\":\"ok\"}", got is not None and got[0] == "200" and '"ok"' in got[1], got)
 
         # ---- monitoring: prometheus 역할 /-/healthy
