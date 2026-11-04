@@ -8,7 +8,7 @@ boundary-contracts v3.4.9(`requirements.txt` 고정): Exposure, BuildImageReques
 
 ## 컴포넌트 입력 (영역 사이 계약이 아니라 platform 컴포넌트 계약)
 **영역 게이트웨이**: `/etc/openit/exposure.json`(필수; 계약 위반 65, 없음 64), `/certs/tls.{crt,key}`, `/tmp` tmpfs. 환경: `AREA_GATEWAY_UPSTREAM`(127.0.0.1:8080), `AREA_GATEWAY_INGRESS_PORT`(443), `AREA_GATEWAY_EGRESS_PORT`(3128, loopback), `AREA_GATEWAY_EXPOSURE`, `AREA_GATEWAY_CERT_DIR`(기본 `/certs`). **`AREA_GATEWAY_CERT_DIR` 가 가리키는 폴더가 마운트되지 않으면 들어오는 쪽 listener 를 열지 않는 나가는 쪽 전용으로 동작한다**(ADR 0001 추가 결정). 사용자 101.
-**공개 입구**: `/etc/openit/exposures/*.json`(65/64), `/etc/caddy/devices.caddy`, `/run/secrets/<upstream_token>`, `/etc/openit/pki/root_ca.crt`, TLS 출처 `GATEWAY_TLS_MODE`(internal|files|acme). 환경: `GATEWAY_HOSTS`, `GATEWAY_HOST_NAMES`, `AUTH_CHECK_TIMEOUT`, `LOGIN_RATE_EVENTS`, `INGRESS_EXPOSURES`. 사용자 10001, 포트 8443 / 평문 8080(`/healthz`).
+**공개 입구**: `/etc/openit/exposures/*.json`(65/64), `/etc/caddy/devices.caddy`, `/run/secrets/<upstream_token>`, `/etc/openit/pki/root_ca.crt`, TLS 출처 `GATEWAY_TLS_MODE`(internal|files|acme). 환경: `GATEWAY_HOSTS`, `GATEWAY_HOST_NAMES`, `AUTH_CHECK_TIMEOUT`, `LOGIN_RATE_EVENTS`, `INGRESS_EXPOSURES`. 내장 선언: `/etc/openit/exposures-builtin/`(keycloak, oauth2-proxy; 이미지 안, 환경 `INGRESS_BUILTIN`). 사용자 10001, 포트 8443 / 평문 8080(`/healthz`).
 
 ## 장애 영향
 - 공개 입구 정지: 사람·기기 모두 접근 불가(영역 사이 호출은 영향 없음).
