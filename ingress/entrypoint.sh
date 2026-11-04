@@ -9,7 +9,8 @@ if [ "${1:-}" = export-root ]; then
   [ -r "$R" ] || { echo "ingress: 사설 CA 루트가 아직 없다($R): 공개 입구를 internal 모드로 한 번 기동한 /data 볼륨을 써야 한다" >&2; exit 1; }
   cp "$R" "$O/root_ca.crt" && chmod 644 "$O/root_ca.crt"; exit $?
 fi
-eval "$(envcheck /etc/openit/schemas/PublicIngressEnv.schema.json)" || exit 64
+ENVOUT=$(envcheck /etc/openit/schemas/PublicIngressEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
+eval "$ENVOUT"
 mkdir -p /tmp/openit
 [ -d "$INGRESS_EXPOSURES" ] || { echo "ingress: Exposure 선언 폴더가 없다: $INGRESS_EXPOSURES" >&2; exit 64; }
 if [ "$GATEWAY_TLS_MODE" = files ]; then [ -r "$INGRESS_TLS_DIR/tls.crt" ] && [ -r "$INGRESS_TLS_DIR/tls.key" ] || { echo "ingress: files 모드인데 $INGRESS_TLS_DIR/tls.{crt,key} 가 없다" >&2; exit 64; }; fi

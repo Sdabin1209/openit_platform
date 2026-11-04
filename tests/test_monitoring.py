@@ -45,6 +45,11 @@ def test_rules_and_mutation(img, tmp_path):
     assert r.returncode != 0, "변이한 규칙이 시험을 통과한다(시험이 경계를 못 잡는다)"
 
 
+def unrelated_root(d):
+    sh("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(d / "other.key"), "-out", str(d / "other.crt"), "-subj", "/CN=unrelated-root", "-days", "2")
+    return (d / "other.crt").read_text()
+
+
 class Mon:
     def __init__(self, img):
         self.s = s = Stack("pmon")
@@ -63,7 +68,7 @@ class Mon:
         # 시험 속도: 수집 주기만 15초로 바꾼 사본을 덮어 마운트한다(그 밖의 설정·scrape_timeout 10s 는 그대로)
         cfg = (ROOT / "monitoring/config/prometheus.yml").read_text().replace("scrape_interval: 1m", "scrape_interval: 15s")
         (s.d / "prometheus.yml").write_text(cfg); (s.d / "prometheus.yml").chmod(0o644)
-        (s.d / "root_pki").mkdir(); (s.d / "root_pki/root_ca.crt").write_text((s.d / "root_ca.crt").read_text()); (s.d / "root_pki").chmod(0o755); (s.d / "root_pki/root_ca.crt").chmod(0o644)
+        (s.d / "root_pki").mkdir(); (s.d / "root_pki/root_ca.crt").write_text(unrelated_root(s.d) + (s.d / "root_ca.crt").read_text())   # 여러 PEM 을 이어 붙인 묶음(MONITORING_ROOT_CA 가 받는 형식): 관계없는 루트 + 진짜 루트; (s.d / "root_pki").chmod(0o755); (s.d / "root_pki/root_ca.crt").chmod(0o644)
         pki = ["-v", f"{s.d}/root_pki:/etc/openit/pki:ro"]
         for role, alias in (("blackbox", "blackbox-exporter"), ("json", "json-exporter")):
             s.run(role, "--network-alias", alias, *HARD, *pki, img, role)

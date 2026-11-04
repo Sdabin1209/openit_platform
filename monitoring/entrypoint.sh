@@ -4,7 +4,8 @@
 #      check: 이미지 안 설정 점검(promtool check config/rules, amtool check-config, blackbox --config.check). 추가 인자는 그대로 넘긴다.
 set -eu
 # 환경은 계약 MonitoringEnv 로 검증하고 기본값을 채운다(위반 64)
-eval "$(envcheck /etc/openit/schemas/MonitoringEnv.schema.json)" || exit 64
+ENVOUT=$(envcheck /etc/openit/schemas/MonitoringEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
+eval "$ENVOUT"
 # 설정 틀(이미지 안 /etc/openit/monitoring)의 두 자리(@TARGETS_DIR@, @ROOT_CA@)를 입력(MONITORING_TARGETS_DIR, MONITORING_ROOT_CA)으로 채워 /tmp 에 둔다: 배치는 이미지 안 설정 경로를 알 필요가 없다
 I=/etc/openit/monitoring; C=/tmp/openit-monitoring; role=${1:-prometheus}; [ $# -eq 0 ] || shift
 mkdir -p "$C"

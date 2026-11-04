@@ -15,6 +15,10 @@ def served_fp(st, host="identity-db"):
     return fp or None
 
 
+def start_time(st):
+    return sh("docker", "exec", st.containers[-1], "psql", "-X", "-q", "-U", "postgres", "-d", "postgres", "-tAc", "select pg_postmaster_start_time()", check=False).stdout.strip()
+
+
 def file_fp(p):
     return sh("openssl", "x509", "-in", str(p), "-noout", "-fingerprint", "-sha256").stdout.strip()
 
@@ -38,12 +42,13 @@ def test_identity_db_serves_tls_and_picks_up_a_renewed_certificate_without_resta
         while time.time() < end and got != want_a:   # 준비 확인: 서버가 올라와 TLS 로 A 를 낼 때까지
             got = served_fp(st); time.sleep(2)
         assert got == want_a, st.logs(st.containers[-1])[-800:]
+        t0 = start_time(st)
         for n in ("crt", "key"): (certs / f"tls.{n}").write_text((st.d / f"b.{n}").read_text())   # step-ca renew 가 같은 경로의 파일을 바꾼다
         end = time.time() + 75
         while time.time() < end and got != want_b:   # 감시 루프 주기(30초) 안에 새 인증서를 낸다
             got = served_fp(st); time.sleep(3)
         assert got == want_b, "재시작 없이 새 인증서로 바뀌지 않았다"
-        assert st.logs(st.containers[-1]).count("database system is ready to accept connections") == 1   # 재시작하지 않았다
+        assert start_time(st) == t0, "서버가 재시작됐다"   # 재시작하지 않고 설정만 다시 읽었다
         # 변이: 계정은 첫 초기화 때 DatabaseDeclaration 대로 만들어졌다(암호는 파일에서)
         r = sh("docker", "exec", st.containers[-1], "psql", "-X", "-q", "-U", "postgres", "-d", "postgres", "-tAc", "select rolname||':'||rolsuper from pg_roles where rolname='identity'", check=False)
         assert r.stdout.strip() == "identity:f", r.stdout + r.stderr

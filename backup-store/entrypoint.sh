@@ -4,7 +4,8 @@
 # 암호 값은 출력하지 않는다(htpasswd -i 는 표준 입력으로 받는다). append-only 는 켜지 않는다: 영역 백업 잡이 forget --prune 으로 보존을 지킨다(헤드 결정, ADR 0011).
 set -eu
 # 환경은 계약 BackupStoreEnv 로 검증하고 기본값을 채운다(위반 64)
-eval "$(envcheck /etc/openit/schemas/BackupStoreEnv.schema.json)" || exit 64
+ENVOUT=$(envcheck /etc/openit/schemas/BackupStoreEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
+eval "$ENVOUT"
 DIR=$OPENIT_BACKUP_AREAS_DIR; TLS=$OPENIT_BACKUP_TLS_DIR; HT=/tmp/htpasswd
 [ -r "$TLS/tls.crt" ] && [ -r "$TLS/tls.key" ] || { echo "backup-store: $TLS/tls.crt, tls.key 가 없다(https 전용)" >&2; exit 2; }
 : > "$HT"; n=0

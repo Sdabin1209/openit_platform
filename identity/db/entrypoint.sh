@@ -2,7 +2,8 @@
 # identity-db 진입점(D126): 환경을 계약 AreaDatabaseEnv 로 검증하고(위반 64), 서버 TLS 파일을 postgres 소유 0600 으로 /tmp(tmpfs)에 옮기고, 접속 규칙(pg_hba)을 만들어 공식 진입점으로 넘긴다.
 # 접속 규칙: 네트워크는 TLS + 암호(scram)만, 소켓(컨테이너 안)만 신뢰한다. 계정은 첫 초기화 때 10-accounts.sh 가 DatabaseDeclaration(/etc/openit/database.json)대로 만든다.
 set -eu
-eval "$(envcheck /etc/openit/schemas/AreaDatabaseEnv.schema.json)" || exit 64
+ENVOUT=$(envcheck /etc/openit/schemas/AreaDatabaseEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
+eval "$ENVOUT"
 [ -r "$DB_TLS_DIR/tls.crt" ] && [ -r "$DB_TLS_DIR/tls.key" ] || { echo "identity-db: $DB_TLS_DIR/tls.{crt,key} 가 없다(서버 TLS 필수)" >&2; exit 64; }
 [ -r "$POSTGRES_PASSWORD_FILE" ] || { echo "identity-db: POSTGRES_PASSWORD_FILE 이 가리키는 파일이 없다" >&2; exit 64; }
 T=/tmp/pgtls; mkdir -p "$T"; chmod 700 "$T"
