@@ -1,0 +1,1 @@
+{"service": "keycloak", "routes": [{"paths": ["/auth/*"], "auth": {"kind": "none"}, "user_header": "strip"}]}

@@ -10,7 +10,8 @@ ARG COMMIT=unknown
 ARG BOUNDARY_TAG=unknown
 USER 0
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
-RUN apk add --no-cache python3 py3-pip >/dev/null && python3 -m venv /opt/gw
+# 왜 파일 capability 제거: 공개 입구는 8443 을 열고(1024 이상) cap_drop ALL 로 뜬다. 파일 capability(cap_net_bind_service)가 남아 있으면 커널이 exec 를 거부한다(측정함: Operation not permitted)
+RUN apk add --no-cache python3 py3-pip libcap-utils >/dev/null && setcap -r /usr/bin/caddy && python3 -m venv /opt/gw
 COPY --from=boundary_contracts . /tmp/boundary
 RUN /opt/gw/bin/pip install -q --no-cache-dir /tmp/boundary && rm -rf /tmp/boundary
 LABEL io.openit.service="public-ingress" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"

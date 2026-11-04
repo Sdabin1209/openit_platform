@@ -6,10 +6,10 @@
 # 왜 환경 변수가 아닌가: 래퍼가 파일을 읽어 환경 변수로 넘기면 Keycloak 프로세스의 /proc/1/environ 에 값이 남는다(3차 E2E check-secrets-hidden 이 잡았다, D84).
 # 왜 기동 때마다 만드는가: 호스트 목록이 바뀌면 파일이 바뀐다. 단, Keycloak 은 이미 있는 realm 은 다시 가져오지 않으므로 운영 중에 호스트를 바꾸면 관리 화면에서 클라이언트의 URI 를 직접 고친다(docs/RUN.md).
 set -euo pipefail
-DEPLOY_NO_DOCKER=1; source "$(dirname "$0")/lib.sh"
-D=${SECRETS_DIR:-$DEPLOY_ROOT/secrets}; OUT=${1:-$D/keycloak-realm.json}; mkdir -p "$(dirname "$OUT")"
+source "$(dirname "$0")/../../scripts/lib.sh"
+D=${SECRETS_DIR:-$ROOT/secrets}; OUT=${1:-$D/keycloak-realm.json}; mkdir -p "$(dirname "$OUT")"
 [ -s "$D/tokens/oauth2-proxy-client-secret" ] && [ -s "$D/tokens/openit-initial-admin-password" ] || die "Keycloak 비밀이 없다: $D/tokens (먼저 scripts/gen-secrets.sh)"
-( umask 027; python3 -I - "$DEPLOY_ROOT/config/keycloak/openit-realm.template.json" "$OUT" "${GATEWAY_HOSTS:-localhost:8443, 127.0.0.1:8443}" "${GATEWAY_PUBLIC_TLS_PORT:-8443}" "$D/tokens/oauth2-proxy-client-secret" "$D/tokens/openit-initial-admin-password" <<'PY'
+( umask 027; python3 -I - "$ROOT/identity/config/keycloak/openit-realm.template.json" "$OUT" "${GATEWAY_HOSTS:-localhost:8443, 127.0.0.1:8443}" "${GATEWAY_PUBLIC_TLS_PORT:-8443}" "$D/tokens/oauth2-proxy-client-secret" "$D/tokens/openit-initial-admin-password" <<'PY'
 import json, re, sys
 tpl, out, hosts, pub, f_secret, f_pw = sys.argv[1:7]
 origins = []
