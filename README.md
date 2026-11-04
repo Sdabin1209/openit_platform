@@ -10,6 +10,7 @@
 
 ## 5. 시험 상태 (WSL2 한 환경에서만 확인, 두 번째 환경은 아직)
 - `tests/test_area_gateway.py`(Docker 필요, 지금 빌드한 이미지로): 영역 게이트웨이 11건. `tests/test_ingress_routes.py`: 경로 표 생성 규칙 6건.
+- `ingress/tests/test-gateway-faults.sh`(R2.1 앱 응답 보존·R3.5 413·R3.6 431/414·R3.1/R3.2 상류 멈춤 503+Retry-After·R4.1 복구·R3.3 504)와 `ingress/tests/test-device-mtls.sh`(기기 인증서 mTLS, PUBLIC_API F절): 둘 다 `tests/test_ingress_shell.py` 로 test 줄기에 오르고 변이(503 매핑 제거, 413 상한 해제, mTLS 검증 끄기)가 실패하는지도 본다.
 - `ingress/tests/test-gateway-auth.sh`: 공개 입구(가짜 oauth2-proxy) 인증 계약, R3.12, R10.4, 431/414.
 - `identity/tests/test-idp-smoke.sh`: 실제 Keycloak·oauth2-proxy 로그인·역할·승인 대기·가입 승인.
 - 감시·백업 저장소·인증서 발급(step-ca): `tests/test_monitoring.py`, `tests/test_backup_store.py`, `tests/test_step_ca.py`(Docker 필요). 배포 입력은 `docs/COMPONENTS.md`.
