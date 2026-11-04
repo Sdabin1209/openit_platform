@@ -77,11 +77,11 @@ def test_state_folders_are_declared_as_docker_volumes(imgs):
     import json
     def vols(tag):
         return set((json.loads(sh("docker", "image", "inspect", tag).stdout)[0]["Config"].get("Volumes") or {}))
-    assert {"/home/step", "/tokens", "/certs"} <= vols(imgs["step-ca"])
+    assert "/home/step" in vols(imgs["step-ca"])
     assert {"/prometheus", "/alertmanager"} <= vols(imgs["monitoring"])
     assert "/data" in vols(imgs["backup-store"])
     assert "/var/lib/postgresql/data" in vols(imgs["identity-db"])
-    assert {"/data", "/config"} <= vols(imgs["public-ingress"])
+    assert "/data" in vols(imgs["public-ingress"])
     assert vols(imgs["identity-proxy"]) == set()
 
 

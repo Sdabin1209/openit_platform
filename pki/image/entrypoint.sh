@@ -9,34 +9,35 @@
 set -eu
 # 환경은 계약 StepCaEnv 로 검증하고 기본값을 채운다(위반 64)
 eval "$(envcheck /etc/openit/schemas/StepCaEnv.schema.json)" || exit 64
+export STEPPATH=$STEP_CA_HOME   # step CLI 의 상태 폴더 표준 변수
 PW=$STEP_CA_PASSWORD_FILE; PORT=$STEP_CA_PORT; URL=$STEP_CA_URL; ROOT=/etc/openit/pki/root_ca.crt
 cmd=${1:-serve}; [ $# -eq 0 ] || shift
 case "$cmd" in
   serve)
-    if [ ! -f /home/step/config/ca.json ]; then
+    if [ ! -f $STEP_CA_HOME/config/ca.json ]; then
       DNS=""; for d in ${STEP_CA_DNS_NAMES:-}; do DNS="$DNS --dns $d"; done
       step ca init --name OpenIt --dns step-ca $DNS --address ":$PORT" --provisioner admin --acme --password-file "$PW" --provisioner-password-file "$PW" >/dev/null 2>&1
     fi
     cp /usr/local/bin/step-ca /tmp/step-ca
-    exec /tmp/step-ca /home/step/config/ca.json --password-file "$PW" ;;
+    exec /tmp/step-ca $STEP_CA_HOME/config/ca.json --password-file "$PW" ;;
   root)
-    cp /home/step/certs/root_ca.crt "${PKI_OUT:-/out}/root_ca.crt"; chmod 644 "${PKI_OUT:-/out}/root_ca.crt" ;;
+    cp $STEP_CA_HOME/certs/root_ca.crt "${PKI_OUT:-/out}/root_ca.crt"; chmod 644 "${PKI_OUT:-/out}/root_ca.crt" ;;
   token)
     [ $# -gt 0 ] || { echo "token: 이름이 필요하다" >&2; exit 2; }
     export STEPPATH=/tmp
     for n in "$@"; do
-      step ca token "$n" --provisioner admin --provisioner-password-file "$PW" --ca-url "$URL" --root "$ROOT" > "/tokens/$n.ott" || exit 1
+      step ca token "$n" --provisioner admin --provisioner-password-file "$PW" --ca-url "$URL" --root "$ROOT" > "$STEP_TOKENS_DIR/$n.ott" || exit 1
     done
-    chmod 644 /tokens/*.ott ;;
+    chmod 644 "$STEP_TOKENS_DIR"/*.ott ;;
   cert)
     n=${1:?cert: 서비스 이름이 필요하다}; export STEPPATH=/tmp
-    if ! step certificate verify /certs/tls.crt --roots "$ROOT" >/dev/null 2>&1; then
+    if ! step certificate verify $STEP_CERTS_DIR/tls.crt --roots "$ROOT" >/dev/null 2>&1; then
       NA=""; [ -z "${STEP_CERT_NOT_AFTER:-}" ] || NA="--not-after $STEP_CERT_NOT_AFTER"
-      step ca certificate "$n" /certs/tls.crt /certs/tls.key --token "$(cat "/tokens/$n.ott")" --ca-url "$URL" --root "$ROOT" $NA --force >/dev/null
+      step ca certificate "$n" $STEP_CERTS_DIR/tls.crt $STEP_CERTS_DIR/tls.key --token "$(cat "$STEP_TOKENS_DIR/$n.ott")" --ca-url "$URL" --root "$ROOT" $NA --force >/dev/null
     fi
-    exec step ca renew --daemon --force --expires-in "${STEP_RENEW_EXPIRES_IN:-12h}" /certs/tls.crt /certs/tls.key --ca-url "$URL" --root "$ROOT" ;;
+    exec step ca renew --daemon --force --expires-in "${STEP_RENEW_EXPIRES_IN:-12h}" $STEP_CERTS_DIR/tls.crt $STEP_CERTS_DIR/tls.key --ca-url "$URL" --root "$ROOT" ;;
   health)   # 이미지 HEALTHCHECK: 부명령마다 의미가 다르다(CA 는 step ca health, 인증서 컨테이너는 만료를 포함한 검증). 일회성(root·token)은 해당 없음
-    if [ -f /home/step/config/ca.json ]; then step ca health 2>/dev/null | grep -q '^ok'
-    else step certificate verify /certs/tls.crt --roots "$ROOT" >/dev/null 2>&1; fi ;;
+    if [ -f $STEP_CA_HOME/config/ca.json ]; then step ca health 2>/dev/null | grep -q '^ok'
+    else step certificate verify $STEP_CERTS_DIR/tls.crt --roots "$ROOT" >/dev/null 2>&1; fi ;;
   *) echo "알 수 없는 부명령: $cmd (serve|root|token|cert|health)" >&2; exit 2 ;;
 esac

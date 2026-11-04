@@ -12,10 +12,8 @@ LABEL io.openit.service="step-ca" io.openit.revision="${COMMIT}" io.openit.contr
 COPY --from=envcheck /envcheck /usr/local/bin/envcheck
 COPY --from=boundary_contracts schemas/StepCaEnv.schema.json /etc/openit/schemas/
 COPY image/entrypoint.sh /usr/local/bin/openit-step-ca-entrypoint.sh
-# 상태 폴더는 Docker 표준 VOLUME 으로 선언한다(배치는 이미지 선언을 읽어 마운트하고 경로를 따로 알지 않는다): CA 키·설정 /home/step, 발급 토큰 /tokens, 인증서 /certs
-USER root
-RUN mkdir -p /tokens /certs && chown step:step /tokens /certs
-VOLUME ["/home/step", "/tokens", "/certs"]
+# 상태 폴더는 Docker 표준 VOLUME 으로 선언한다(배치는 이미지 선언을 읽어 마운트하고 경로를 따로 알지 않는다): CA 키·설정 /home/step, (발급 토큰·인증서 폴더는 STEP_TOKENS_DIR·STEP_CERTS_DIR 로 받는 실행별 마운트다)
+VOLUME ["/home/step"]
 USER step
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 CMD ["/usr/local/bin/openit-step-ca-entrypoint.sh", "health"]
 ENTRYPOINT ["/usr/local/bin/openit-step-ca-entrypoint.sh"]

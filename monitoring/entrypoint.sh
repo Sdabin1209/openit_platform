@@ -15,7 +15,7 @@ case "$role" in
   alertmanager) exec alertmanager --config.file="$C/alertmanager.yml" --storage.path=/alertmanager --web.listen-address=:9093 "$@" ;;
   blackbox)     exec blackbox_exporter --config.file="$C/blackbox.yml" "$@" ;;
   json)         exec json_exporter --config.file="$C/json-exporter.yml" "$@" ;;
-  node)         exec node_exporter --path.rootfs=/host --collector.disable-defaults --collector.filesystem --collector.timex --collector.textfile --collector.textfile.directory=/textfile --web.listen-address=:9100 "$@" ;;   # 필요한 수집기만(최소 권한)
+  node)         exec node_exporter --path.rootfs="$MONITORING_NODE_HOST_ROOT" --collector.disable-defaults --collector.filesystem --collector.timex --collector.textfile --collector.textfile.directory="$MONITORING_NODE_TEXTFILE_DIR" --web.listen-address=:9100 "$@" ;;   # 필요한 수집기만(최소 권한)
   check)
     promtool check config "$C/prometheus.yml" && promtool check rules "$C/rules/openit.yml" && amtool check-config "$C/alertmanager.yml" && blackbox_exporter --config.check --config.file="$C/blackbox.yml" ;;
   *) echo "알 수 없는 역할: $role (prometheus|alertmanager|blackbox|json|node|check)" >&2; exit 2 ;;
