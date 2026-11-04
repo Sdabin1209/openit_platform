@@ -34,7 +34,7 @@
       "protocol": "openid-connect",
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "${OPENIT_GATEWAY_CLIENT_SECRET}",
+      "secret": "OPENIT_GATEWAY_CLIENT_SECRET",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -65,7 +65,7 @@
       "emailVerified": true,
       "firstName": "Initial",
       "lastName": "Admin",
-      "credentials": [{"type": "password", "value": "${OPENIT_INITIAL_ADMIN_PASSWORD}", "temporary": true}],
+      "credentials": [{"type": "password", "value": "OPENIT_INITIAL_ADMIN_PASSWORD", "temporary": true}],
       "groups": ["admin"]
     }
   ]

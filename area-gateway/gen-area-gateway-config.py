@@ -5,8 +5,9 @@
 이미지 안에서는 entrypoint.sh 가 부른다(입력은 Dockerfile 머리말). 사용: gen-area-gateway-config.py --exposure <Exposure JSON 파일> --upstream <host:port> [--cert F --key F] [--ingress-port 443 --egress-port 3128] > envoy.yaml
 입력은 Exposure 계약 스키마로 검증한다(CONVENTIONS 3절). 비밀 값 없음."""
 import argparse, json, re, sys
+from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 오류 본문의 스키마 버전은 계약 패키지의 현행 값이다(박지 않는다)
 
-DENIED = {"pipeline_schema_version": "2.0", "code": "PERMISSION_DENIED", "message": "EGRESS_DENIED", "retryable": False, "details": {"reason": "EGRESS_DENIED"}}
+DENIED = {"pipeline_schema_version": PSV, "code": "PERMISSION_DENIED", "message": "EGRESS_DENIED", "retryable": False, "details": {"reason": "EGRESS_DENIED"}}
 BACKUP_HOST = "backup-store"   # platform 백업 저장소의 서비스 이름(external:backup, RUNTIME R10.1)
 
 
@@ -35,7 +36,7 @@ def glob_regex(path):
 
 
 def too_large(limit):
-    body = json.dumps({"pipeline_schema_version": "2.0", "code": "INVALID_RECORD", "message": "request body too large", "retryable": False, "details": {"max_body_bytes": limit}}, ensure_ascii=False, separators=(",", ":"))
+    body = json.dumps({"pipeline_schema_version": PSV, "code": "INVALID_RECORD", "message": "request body too large", "retryable": False, "details": {"max_body_bytes": limit}}, ensure_ascii=False, separators=(",", ":"))
     return {"direct_response": {"status": 413, "body": {"inline_string": body}}, "response_headers_to_add": [{"header": {"key": "Content-Type", "value": "application/json"}}]}
 
 

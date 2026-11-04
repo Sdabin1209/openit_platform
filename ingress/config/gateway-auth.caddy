@@ -24,7 +24,7 @@
 				header Content-Type application/json
 				header Cache-Control no-store
 				header WWW-Authenticate `Bearer realm="openit"`
-				respond `{"pipeline_schema_version":"2.0","code":"PERMISSION_DENIED","message":"login required","retryable":false}` 401
+				respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"PERMISSION_DENIED","message":"login required","retryable":false}` 401
 			}
 			handle @html {
 				redir * /oauth2/start?rd={http.request.uri.path} 302
@@ -33,7 +33,7 @@
 				header Content-Type application/json
 				header Cache-Control no-store
 				header WWW-Authenticate `Bearer realm="openit"`
-				respond `{"pipeline_schema_version":"2.0","code":"PERMISSION_DENIED","message":"login required","retryable":false}` 401
+				respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"PERMISSION_DENIED","message":"login required","retryable":false}` 401
 			}
 		}
 		# 인증 확인이 정상 응답(2xx·401)이 아니면(계정 관리가 BoundaryError 가 아닌 5xx 등) 503 UU 로 바꾼다. 오류 본문은 호출자에게 가지 않는다(R3.12)

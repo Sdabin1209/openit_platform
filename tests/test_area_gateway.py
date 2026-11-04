@@ -4,6 +4,7 @@
 import json, pathlib, subprocess, sys, tempfile, time, uuid
 import pytest
 
+from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 계약 패키지의 현행 값과 같아야 한다(박지 않는다)
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE = "platform-area-gateway:test-" + uuid.uuid4().hex[:8]   # D22: 이미지 태그에 리포 이름 + 임의 접미사(다른 세션과 충돌 방지)
 CURL = "curlimages/curl:8.10.1"
@@ -95,7 +96,7 @@ def test_egress_undeclared_peer_is_403_boundary_error(stack):
     head, _, b = raw.replace("\r\n", "\n").partition("\n\n")   # subprocess 텍스트 모드가 CRLF 를 LF 로 바꾼다
     assert head.startswith("HTTP/1.1 403")
     err = json.loads(b)
-    assert err["code"] == "PERMISSION_DENIED" and err["details"] == {"reason": "EGRESS_DENIED"} and err["retryable"] is False and err["pipeline_schema_version"] == "2.0"
+    assert err["code"] == "PERMISSION_DENIED" and err["details"] == {"reason": "EGRESS_DENIED"} and err["retryable"] is False and err["pipeline_schema_version"] == PSV
 
 
 def test_mutation_removing_the_peer_from_egress_denies_it(stack):

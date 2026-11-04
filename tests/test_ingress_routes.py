@@ -44,3 +44,33 @@ def test_area_health_and_metrics_paths_are_not_exported():
 def test_mutation_other_paths_of_the_same_service_are_exported():
     r = run(ex("a", "/readyz"), ex("a", "/v1/ok"))
     assert "path /v1/ok" in r.stdout
+
+
+BUILTIN = ROOT / "ingress/exposures-builtin"
+
+
+def run_with_builtin(*exposures):
+    d = pathlib.Path(tempfile.mkdtemp())
+    for i, e in enumerate(exposures):
+        (d / f"{i}.json").write_text(json.dumps(e))
+    return subprocess.run([sys.executable, "-I", str(GEN), str(BUILTIN), str(d)], capture_output=True, text=True)
+
+
+def test_builtin_human_auth_routes_are_generated():
+    r = run_with_builtin(ex("a", "/v1/y"))
+    assert r.returncode == 0 and "path /oauth2/*" in r.stdout and "path /auth/*" in r.stdout and "https://keycloak" in r.stdout and "https://oauth2-proxy" in r.stdout
+
+
+def test_area_declaration_overlapping_a_builtin_path_refuses_to_start():
+    r = run_with_builtin(ex("a", "/auth/*"))
+    assert r.returncode != 0 and "/auth/*" in r.stderr
+
+
+def test_mutation_without_the_builtin_dir_no_human_auth_routes():
+    r = run(ex("a", "/v1/y"))
+    assert r.returncode == 0 and "path /oauth2/*" not in r.stdout
+
+
+def test_error_bodies_use_the_contract_schema_version_placeholder_not_a_literal():
+    r = run(ex("a", "/v1/y"))
+    assert '"pipeline_schema_version":"2.0"' not in r.stdout and "$PIPELINE_SCHEMA_VERSION" in r.stdout

@@ -21,12 +21,14 @@ for h in re.split(r"\s*,\s*", hosts.strip()):
         if o not in origins: origins.append(o)
 t = json.load(open(tpl, encoding="utf-8"))
 c = t["clients"][0]
+assert c["secret"] == "OPENIT_GATEWAY_CLIENT_SECRET", "템플릿 자리표시가 바뀌었다"   # 템플릿에는 자리표시(환경 변수 이름 모양)만 둔다: 값은 비밀 파일에서 시작 때 채운다(D84)
 c["secret"] = open(f_secret).read().strip()
+assert t["users"][0]["credentials"][0]["value"] == "OPENIT_INITIAL_ADMIN_PASSWORD"
 t["users"][0]["credentials"][0]["value"] = open(f_pw).read().strip()
 c["redirectUris"] = [o + "/oauth2/callback" for o in origins]
 c["attributes"]["post.logout.redirect.uris"] = "##".join(o + "/" for o in origins)
 s = json.dumps(t, ensure_ascii=False, indent=2) + "\n"
-assert "__" not in s and "${" not in s, "채우지 못한 자리표시가 남았다"
+assert "OPENIT_GATEWAY_CLIENT_SECRET" not in s and "OPENIT_INITIAL_ADMIN_PASSWORD" not in s and "${" not in s, "채우지 못한 자리표시가 남았다"
 open(out, "w", encoding="utf-8").write(s)
 PY
 )

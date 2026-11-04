@@ -9,10 +9,10 @@ import json, pathlib, re, sys
 
 ROLE_RE = r"(^|,)(%s)(,|$)"
 CA = "/etc/openit/pki/root_ca.crt"
-PERM = lambda msg, extra="": '{"pipeline_schema_version":"2.0","code":"PERMISSION_DENIED","message":"%s","retryable":false%s}' % (msg, extra)
+PERM = lambda msg, extra="": '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"PERMISSION_DENIED","message":"%s","retryable":false%s}' % (msg, extra)
 PENDING = PERM("account pending approval", ',"details":{"reason":"ACCOUNT_PENDING_APPROVAL"}')
-NOTFOUND = '{"pipeline_schema_version":"2.0","code":"NOT_FOUND","message":"not found","retryable":false}'
-TOO_LARGE = '{"pipeline_schema_version":"2.0","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":%d}}'
+NOTFOUND = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}'
+TOO_LARGE = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":%d}}'
 OPERATIONAL = {"/healthz", "/readyz", "/metrics"}
 DEFAULT_MAX_BODY = 8 * 1024 * 1024
 
@@ -82,6 +82,16 @@ def gen(exposures):
                 if p in OPERATIONAL:
                     continue   # 영역의 상태·지표 경로는 영역 게이트웨이로만 닿고 공개 입구에 열지 않는다(CONVENTIONS 78행, R5.1·R10.11). 입구 자기 /healthz·/readyz 는 Caddyfile 이 따로 둔다
                 atoms.setdefault((p, tuple(sorted(r.get("methods") or []))), []).append((e["service"], r))
+    # 같은 공개 경로를 서로 다른 서비스가 겹치는 메서드로 열면 주인이 둘이다: 시작하지 않는다(종료 65). 메서드를 적지 않은 선언은 모든 메서드다
+    by_path = {}
+    for (path, methods), opts in atoms.items():
+        for svc in {o[0] for o in opts}:
+            by_path.setdefault(path, []).append((svc, set(methods)))
+    for path, owners in by_path.items():
+        for i, (a, ma) in enumerate(owners):
+            for b, mb in owners[i + 1:]:
+                if a != b and (not ma or not mb or ma & mb):
+                    raise SystemExit("같은 공개 경로를 두 서비스가 연다: %s %s" % (path, sorted({a, b})))
     out = ["# 생성됨(platform ingress/gen-ingress-routes.py): 각 영역 Exposure 선언에서 만든다. 직접 고치지 않는다.", ""]
     n = 0
     # 2) 허용 경로: 정확한 경로(와일드카드 없음)가 먼저, 긴 패턴이 먼저
@@ -90,8 +100,6 @@ def gen(exposures):
         if path == "/*" and not floor_done:   # 선언에 없는 /v1/* 는 404(루트 정적 화면 /* 가 삼키지 않게)
             floor_done = True
             out += block("v1floor", ["path /v1/*"], respond(404, NOTFOUND)) + [""]
-        if len({o[0] for o in opts}) > 1:   # 같은 공개 경로·메서드를 두 영역이 열면 주인이 둘이다: 시작하지 않는다(종료 65)
-            raise SystemExit("같은 공개 경로를 두 영역이 연다: %s %s %s" % (path, list(methods), sorted({o[0] for o in opts})))
         n += 1
         m = ["path " + path] + (["method " + " ".join(methods)] if methods else [])
         kinds = {o[1]["auth"]["kind"] for o in opts}

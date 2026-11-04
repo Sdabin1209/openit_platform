@@ -18,7 +18,7 @@ trap cleanup EXIT
 PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
 export SECRETS_GID
 export GATEWAY_PUBLIC_TLS_PORT=$PORT PUBLIC_PORT=$PORT PUBLIC_URL=https://127.0.0.1:$PORT GATEWAY_HOSTS="127.0.0.1:8443, localhost:8443"
-export GATEWAY_HOST_NAMES=$(gateway_host_names) PGTLS_VOLUME=$P-pgtls IDENTITY_DIR=$ROOT/identity EXPOSURES_DIR=$ROOT/ingress/tests/exposures
+export GATEWAY_HOST_NAMES=$(gateway_host_names) PGTLS_VOLUME=$P-pgtls BUILTIN_DIR=$ROOT/ingress/exposures-builtin EXPOSURES_DIR=$ROOT/ingress/tests/exposures
 GW_IMG=platform-area-gateway:idp-$ID; ING_IMG=platform-ingress:idp-$ID; KC_IMG=platform-keycloak:idp-$ID
 export AREA_GATEWAY_IMAGE=$GW_IMG INGRESS_IMAGE=$ING_IMG KEYCLOAK_OPTIMIZED_IMAGE=$KC_IMG
 echo "== 준비 (비밀·PKI·이미지)"

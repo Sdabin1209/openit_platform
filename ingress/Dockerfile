@@ -16,6 +16,8 @@ COPY --from=boundary_contracts . /tmp/boundary
 RUN /opt/gw/bin/pip install -q --no-cache-dir /tmp/boundary && rm -rf /tmp/boundary
 LABEL io.openit.service="public-ingress" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
 COPY config/ /etc/caddy/
+# 사람 인증(Keycloak, oauth2-proxy)의 공개 경로 선언: 공개 입구와 사람 인증은 둘 다 platform 컴포넌트라 그 사이 선언은 영역 안 계약이다(구조 규칙 5). 영역 선언과 함께 읽고 같은 충돌 규칙을 적용한다
+COPY exposures-builtin/ /etc/openit/exposures-builtin/
 COPY gen-ingress-routes.py /usr/local/bin/gen-ingress-routes.py
 COPY entrypoint.sh /usr/local/bin/ingress-entrypoint.sh
 USER 10001

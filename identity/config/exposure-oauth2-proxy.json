@@ -1,1 +1,0 @@
-{"service": "oauth2-proxy", "routes": [{"paths": ["/oauth2/*", "/ping"], "auth": {"kind": "none"}, "user_header": "strip"}]}

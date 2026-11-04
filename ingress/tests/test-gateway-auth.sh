@@ -17,7 +17,7 @@ FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; e
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 EXP="$ROOT/ingress/tests/exposures"
 ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 --tmpfs /data:uid=10001,gid=10001 --tmpfs /config:uid=10001,gid=10001 -v "$EXP:/etc/openit/exposures:ro" -v "$T/gateway-devices.caddy:/etc/caddy/devices.caddy:ro" -v "$T/tokens:/run/secrets:ro"; }
-val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES --entrypoint sh "$ING" -c 'mkdir -p /tmp/openit && /opt/gw/bin/python /usr/local/bin/gen-ingress-routes.py /etc/openit/exposures > /tmp/openit/routes.caddy && caddy validate --config /etc/caddy/Caddyfile'; }
+val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) -e GATEWAY_HOST_NAMES --entrypoint sh "$ING" -c 'mkdir -p /tmp/openit && /opt/gw/bin/python /usr/local/bin/gen-ingress-routes.py /etc/openit/exposures-builtin /etc/openit/exposures > /tmp/openit/routes.caddy && caddy validate --config /etc/caddy/Caddyfile'; }
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 뗀다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; [ "$(GATEWAY_HOSTS="kiosk.hospital.local:8443, 10.0.0.5:443" gateway_host_names)" = "\"kiosk.hospital.local\", \"10.0.0.5\"" ]' _ "$ROOT"
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c 'source "$1/scripts/lib.sh" 2>/dev/null; ! ( GATEWAY_HOSTS="*.x:8443" gateway_host_names ) >/dev/null 2>&1 && ! ( GATEWAY_HOSTS="a\"b:8443" gateway_host_names ) >/dev/null 2>&1' _ "$ROOT"

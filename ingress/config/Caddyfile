@@ -90,17 +90,17 @@ http://:8080 {
 	handle @toolarge {
 		header Content-Type application/json
 		header Cache-Control no-store
-		respond `{"pipeline_schema_version":"2.0","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":8388608}}` 413
+		respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":8388608}}` 413
 	}
 	@csrf expression `{http.request.method} in ["POST", "PUT", "PATCH", "DELETE"] && (({http.request.header.Sec-Fetch-Site} != "" && !({http.request.header.Sec-Fetch-Site} in ["same-origin", "none"])) || ({http.request.header.Origin} != "" && (!({http.request.host} in [{$GATEWAY_HOST_NAMES}]) || {http.request.header.Origin} != "https://" + {http.request.hostport})))`
 	handle @csrf {
 		header Content-Type application/json
 		header Cache-Control no-store
-		respond `{"pipeline_schema_version":"2.0","code":"PERMISSION_DENIED","message":"cross-origin request denied","retryable":false}` 403
+		respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"PERMISSION_DENIED","message":"cross-origin request denied","retryable":false}` 403
 	}
 	handle /config.json {
 		header Content-Type application/json
-		respond `{"pipeline_schema_version":"2.0","code":"NOT_FOUND","message":"not found","retryable":false}` 404
+		respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}` 404
 	}
 	handle /healthz {
 		header Content-Type application/json
@@ -142,45 +142,13 @@ http://:8080 {
 	@oauth2internal path /oauth2/auth
 	handle @oauth2internal {
 		header Content-Type application/json
-		respond `{"pipeline_schema_version":"2.0","code":"NOT_FOUND","message":"not found","retryable":false}` 404
+		respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}` 404
 	}
-	handle /oauth2/* {
-		header ?Cache-Control "no-store"   # 앱이 Cache-Control 을 정했으면 그대로 두고 없을 때만 설정한다(접두어 ?, R2.1). header_down 은 ? 접두어를 받지 않는다(Caddy 2.11.7)
-		reverse_proxy https://oauth2-proxy {
-			header_up X-Forwarded-Host {http.request.hostport}   # 왜: 사이드카가 X-Forwarded-* 를 이웃(사설망)에게서 그대로 받는다(trusted_proxies). 원래 Host 를 앱이 알아야 하는 서비스(Keycloak)용
-			header_up Host {upstream_hostport}   # 왜: 상류 사이드카는 서비스 이름 사이트로 TLS 를 끝낸다(Host 로 사이트를 고른다). 원래 Host 는 X-Forwarded-Host 로 남는다
-			header_up -X-Openit-Dn
-			header_up -X-Openit-Device
-			header_up -X-Openit-User
-			header_up -X-Openit-Roles
-			lb_try_duration 0
-			transport http {
-				tls_trusted_ca_certs /etc/openit/pki/root_ca.crt   # 서비스 사이드카 인증서는 deploy step-ca 가 발급한다: 루트만 신뢰(ADR 0060)
-				dial_timeout 2s
-				response_header_timeout 10s
-			}
-		}
-	}
+	# /oauth2/* 와 /auth/* 의 프록시는 내장 선언(ingress/exposures-builtin/)에서 생성된다. 위·아래의 두 닫힘(/oauth2/auth, master realm)이 그보다 먼저 걸린다
 	@kcmaster path /auth/realms/master /auth/realms/master/* /auth/admin/master /auth/admin/master/*
 	handle @kcmaster {
 		header Content-Type application/json
-		respond `{"pipeline_schema_version":"2.0","code":"NOT_FOUND","message":"not found","retryable":false}` 404
-	}
-	handle /auth/* {
-		reverse_proxy https://keycloak {
-			header_up X-Forwarded-Host {http.request.hostport}   # 왜: 사이드카가 X-Forwarded-* 를 이웃(사설망)에게서 그대로 받는다(trusted_proxies). 원래 Host 를 앱이 알아야 하는 서비스(Keycloak)용
-			header_up Host {upstream_hostport}   # 왜: 상류 사이드카는 서비스 이름 사이트로 TLS 를 끝낸다(Host 로 사이트를 고른다). 원래 Host 는 X-Forwarded-Host 로 남는다
-			header_up -X-Openit-Dn
-			header_up -X-Openit-Device
-			header_up -X-Openit-User
-			header_up -X-Openit-Roles
-			lb_try_duration 0
-			transport http {
-				tls_trusted_ca_certs /etc/openit/pki/root_ca.crt   # 서비스 사이드카 인증서는 deploy step-ca 가 발급한다: 루트만 신뢰(ADR 0060)
-				dial_timeout 2s
-				response_header_timeout 10s
-			}
-		}
+		respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}` 404
 	}
 	# 영역 경로 표: 각 영역의 Exposure 선언에서 생성한다(ingress/gen-ingress-routes.py, S9). 손으로 쓴 영역 경로는 없다.
 	import /tmp/openit/routes.caddy
@@ -190,7 +158,7 @@ http://:8080 {
 			header Content-Type application/json
 			header Retry-After 5
 			header Cache-Control no-store
-			respond `{"pipeline_schema_version":"2.0","code":"UNAVAILABLE","message":"authentication check unavailable","retryable":true}` 503
+			respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"UNAVAILABLE","message":"authentication check unavailable","retryable":true}` 503
 		}
 		@refused expression {http.error.status_code} in [502, 503]
 		@timedout expression {http.error.status_code} == 504
@@ -212,11 +180,11 @@ http://:8080 {
 		handle @toomany {
 			header Content-Type application/json
 			header Cache-Control no-store
-			respond `{"pipeline_schema_version":"2.0","code":"UNAVAILABLE","message":"too many requests","retryable":true}` 429
+			respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"UNAVAILABLE","message":"too many requests","retryable":true}` 429
 		}
 		handle @longuri {
 			header Content-Type application/json
-			respond `{"pipeline_schema_version":"2.0","code":"INVALID_RECORD","message":"request line or headers too large","retryable":false}` {http.error.status_code}
+			respond `{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"INVALID_RECORD","message":"request line or headers too large","retryable":false}` {http.error.status_code}
 		}
 	}
 }

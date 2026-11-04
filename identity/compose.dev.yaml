@@ -84,7 +84,7 @@ services:
     <<: *areagw
     network_mode: "service:keycloak-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:8080"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${IDENTITY_DIR:?}/config/exposure-keycloak.json:/etc/openit/exposure.json:ro"]
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR:?}/keycloak.json:/etc/openit/exposure.json:ro"]
     depends_on: {keycloak: {condition: service_healthy}}
   oauth2-proxy-net:
     <<: *pause
@@ -130,7 +130,7 @@ services:
     <<: *areagw
     network_mode: "service:oauth2-proxy-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:4180"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${IDENTITY_DIR}/config/exposure-oauth2-proxy.json:/etc/openit/exposure.json:ro"]
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR}/oauth2-proxy.json:/etc/openit/exposure.json:ro"]
   gateway:
     <<: *hardening
     image: ${INGRESS_IMAGE:?}
