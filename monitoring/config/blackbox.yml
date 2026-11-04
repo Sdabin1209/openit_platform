@@ -1,0 +1,19 @@
+# blackbox_exporter 모듈(ADR 0010). 계약 R5.1: /healthz·/readyz 는 상태 코드(2xx)와 본문(비어 있지 않은 HealthStatus: status 필드)을 함께 본다. 빈 200 은 통과가 아니다.
+modules:
+  readyz:   # 영역 게이트웨이를 지난 서비스 이름 https. 루트로 검증(서비스 인증서는 platform 인증기관 발급)
+    prober: http
+    timeout: 5s          # 옛 check_health.py 의 요청 제한 시간(5초)을 그대로 옮겼다. 측정 안 함
+    http:
+      method: GET
+      preferred_ip_protocol: ip4
+      follow_redirects: false
+      tls_config: {ca_file: /etc/openit/pki/root_ca.crt}
+      fail_if_body_not_matches_regexp: ['"status": *"[^"]+"']
+  public_healthz:   # 공개 입구. 공인 ACME 면 시스템 루트, 사설이면 설치처 루트(SSL_CERT_FILE 마운트, COMPONENTS.md)
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      preferred_ip_protocol: ip4
+      follow_redirects: false
+      fail_if_body_not_matches_regexp: ['"status": *"[^"]+"']
