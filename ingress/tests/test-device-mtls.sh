@@ -21,7 +21,7 @@ dca -v "$DEVCA:/etc/openit/device-ca.pem:ro" -v "$ROOT/ingress/tests/exposures:/
 e=$(docker run --rm -e "GATEWAY_HOSTS=localhost:8443" "$ING" validate 2>&1 >/dev/null); rc=$?; [ $rc = 64 ] && grep -q "기기 CA 파일" <<<"$e" && pass "기기 CA 파일이 없으면 시작하지 않는다(종료 64): 기본 기기 인증이 조용히 꺼지지 않는다" || fail "기기 CA 없음이 거부되지 않았다"
 echo "not a pem" > "$T/notpem"; e=$(docker run --rm -e "GATEWAY_HOSTS=localhost:8443" -v "$T/notpem:/etc/openit/device-ca.pem:ro" "$ING" validate 2>&1 >/dev/null); rc=$?; [ $rc = 64 ] && grep -q "기기 CA 파일" <<<"$e" && pass "PEM 인증서가 아닌 기기 CA 파일은 거부(종료 64)" || fail "PEM 아닌 파일이 거부되지 않았다"
 # 생성된 경로 표 구조: 모든 프록시가 X-Openit-Dn 을 지우고, 기기 헤더는 지우거나(토큰·직원 경로) 인증서 CN 으로 덮어쓴다(인증서 경로)
-docker run --rm --entrypoint /opt/gw/bin/python -v "$ROOT/ingress/tests/exposures:/ex:ro" "$ING" /usr/local/bin/gen-ingress-routes.py /etc/openit/exposures-builtin /ex > "$T/routes.caddy" 2>/dev/null
+docker run --rm --entrypoint /opt/gw/bin/python -v "$ROOT/ingress/tests/exposures:/ex:ro" "$ING" /usr/local/bin/gen-ingress-routes.py /ex > "$T/routes.caddy" 2>/dev/null
 python3 - "$T/routes.caddy" "$ROOT/ingress/config/Caddyfile" <<'PY' && pass "생성된 모든 reverse_proxy 가 X-Openit-Dn 을 지우고 기기 헤더를 지우거나 CN 으로 덮어쓴다, 인증서 경로가 토큰 경로보다 먼저다" || fail "경로 표 헤더 처리"
 import re, sys
 t = open(sys.argv[1], encoding="utf-8").read(); cf = open(sys.argv[2], encoding="utf-8").read()

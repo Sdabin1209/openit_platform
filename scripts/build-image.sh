@@ -35,7 +35,20 @@ if true; then
   BA="v$(sed -n 's/^version = "\(.*\)"$/\1/p' "$BOUNDARY_SRC/pyproject.toml" | head -1)"; [ "$BA" = "$ACTUAL" ] || die "dependency_sources.boundary 의 실제 버전($BA)이 환경의 계약 패키지($ACTUAL)와 다르다"
   CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC" --build-context "common=$PWD/common")
 fi
-"$DOCKER" build -q -t "$IMAGE_TAG" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" -f "$CTX/$DOCKERFILE" "${CTXARGS[@]}" "$CTX" >&2
+# 노출 선언 라벨(io.openit.exposure, 계약 Exposure): 이 서비스가 받는 경로와 내보내는 호출. 정본은 $CTX/exposure-$SERVICE.json 한 곳이고 deploy 가 라벨에서 영역 게이트웨이·공개 입구 선언을 만든다(다른 영역 서비스와 같은 방식).
+EXPARGS=(); if [ -f "$CTX/exposure-$SERVICE.json" ]; then
+  EXPJSON=$("$PYTHON" - "$CTX/exposure-$SERVICE.json" "$SERVICE" <<'PY'
+import json, sys
+from boundary_contracts import validator
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+errs = list(validator("Exposure").iter_errors(d))
+if errs or d.get("service") != sys.argv[2]: sys.exit("build-image: 노출 선언이 계약 Exposure 를 어기거나 service 가 게시 이름과 다르다: " + (errs[0].message[:150] if errs else d.get("service", "")))
+print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+PY
+  ) || exit 1
+  EXPARGS=(--build-arg "EXPOSURE_JSON=$EXPJSON")
+fi
+"$DOCKER" build -q -t "$IMAGE_TAG" "${EXPARGS[@]}" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" -f "$CTX/$DOCKERFILE" "${CTXARGS[@]}" "$CTX" >&2
 "$DOCKER" image inspect "$IMAGE_TAG" | "$PYTHON" -c '
 import json, sys
 from boundary_contracts import validator

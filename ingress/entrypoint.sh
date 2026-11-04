@@ -18,7 +18,7 @@ mkdir -p /tmp/openit
 printf '(device_client_auth) {\n\tclient_auth {\n\t\tmode verify_if_given\n\t\ttrusted_ca_cert_file %s\n\t}\n}\n' "$INGRESS_DEVICE_CA_FILE" > /tmp/openit/device-tls.caddy
 [ -d "$INGRESS_EXPOSURES" ] || { echo "ingress: Exposure 선언 폴더가 없다: $INGRESS_EXPOSURES" >&2; exit 64; }
 if [ "$GATEWAY_TLS_MODE" = files ]; then [ -r "$INGRESS_TLS_DIR/tls.crt" ] && [ -r "$INGRESS_TLS_DIR/tls.key" ] || { echo "ingress: files 모드인데 $INGRESS_TLS_DIR/tls.{crt,key} 가 없다" >&2; exit 64; }; fi
-/opt/gw/bin/python /usr/local/bin/gen-ingress-routes.py /etc/openit/exposures-builtin "$INGRESS_EXPOSURES" > /tmp/openit/routes.caddy || { echo "ingress: 경로 표를 만들지 못했다(선언이 계약을 어겼거나 입력이 틀렸다)" >&2; exit 65; }
+/opt/gw/bin/python /usr/local/bin/gen-ingress-routes.py "$INGRESS_EXPOSURES" > /tmp/openit/routes.caddy || { echo "ingress: 경로 표를 만들지 못했다(선언이 계약을 어겼거나 입력이 틀렸다)" >&2; exit 65; }
 ( umask 077; /opt/gw/bin/python /usr/local/bin/gen-devices.py "$INGRESS_DEVICE_TOKENS_DIR" > /tmp/openit/devices.caddy ) || { echo "ingress: 기기 토큰 폴더가 계약 형식이 아니다: $INGRESS_DEVICE_TOKENS_DIR" >&2; exit 65; }
 # 파생 값은 이미지가 만든다: 오류 본문의 pipeline_schema_version(계약 패키지 현행 값)과 CSRF 허용 호스트 목록(GATEWAY_HOSTS 에서)
 export PIPELINE_SCHEMA_VERSION=$(/opt/gw/bin/python -c 'import boundary_contracts as b;print(b.PIPELINE_SCHEMA_VERSION)')

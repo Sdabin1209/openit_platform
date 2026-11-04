@@ -46,27 +46,29 @@ def test_mutation_other_paths_of_the_same_service_are_exported():
     assert "path /v1/ok" in r.stdout
 
 
-BUILTIN = ROOT / "ingress/exposures-builtin"
+IDENTITY = ROOT / "identity"   # 사람 인증 이미지의 노출 선언 정본(라벨 io.openit.exposure 의 내용)
 
 
 def run_with_builtin(*exposures):
     d = pathlib.Path(tempfile.mkdtemp())
     for i, e in enumerate(exposures):
         (d / f"{i}.json").write_text(json.dumps(e))
-    return subprocess.run([sys.executable, "-I", str(GEN), str(BUILTIN), str(d)], capture_output=True, text=True)
+    for f in IDENTITY.glob("exposure-*.json"):
+        (d / f.name).write_text(f.read_text(encoding="utf-8"))
+    return subprocess.run([sys.executable, "-I", str(GEN), str(d)], capture_output=True, text=True)
 
 
-def test_builtin_human_auth_routes_are_generated():
+def test_identity_declarations_generate_the_human_auth_routes():
     r = run_with_builtin(ex("a", "/v1/y"))
     assert r.returncode == 0 and "path /oauth2/*" in r.stdout and "path /auth/*" in r.stdout and "https://identity" in r.stdout and "https://identity-proxy" in r.stdout
 
 
-def test_area_declaration_overlapping_a_builtin_path_refuses_to_start():
+def test_area_declaration_overlapping_an_identity_path_refuses_to_start():
     r = run_with_builtin(ex("a", "/auth/*"))
     assert r.returncode != 0 and "/auth/*" in r.stderr
 
 
-def test_mutation_without_the_builtin_dir_no_human_auth_routes():
+def test_mutation_without_the_identity_declarations_no_human_auth_routes():
     r = run(ex("a", "/v1/y"))
     assert r.returncode == 0 and "path /oauth2/*" not in r.stdout
 

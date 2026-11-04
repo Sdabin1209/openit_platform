@@ -10,9 +10,11 @@ RUN cd /src/identity/entry && CGO_ENABLED=0 go build -trimpath -buildvcs=false -
 FROM ${KEYCLOAK_IMAGE}
 ARG COMMIT=unknown
 ARG BOUNDARY_TAG=unknown
+ARG EXPOSURE_JSON
 RUN /opt/keycloak/bin/kc.sh build --db=postgres --health-enabled=true --http-relative-path=/auth
 COPY --from=entry /identity-entry /usr/local/bin/identity-entry
 COPY --from=boundary_contracts schemas/IdentityEnv.schema.json /etc/openit/schemas/
-LABEL io.openit.service="identity" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
+# io.openit.exposure: 이 서비스의 노출 선언(계약 Exposure, 정본 identity/exposure-identity.json). build-image.sh 가 계약 스키마로 검증해 build arg 로 준다
+LABEL io.openit.exposure="${EXPOSURE_JSON}" io.openit.service="identity" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
 USER 1000
 ENTRYPOINT ["/usr/local/bin/identity-entry", "keycloak"]

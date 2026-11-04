@@ -63,7 +63,7 @@ services:
     <<: *areagw
     network_mode: "service:identity-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:8080"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR:?}/identity.json:/etc/openit/exposure.json:ro"]
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${IDENTITY_DIR:?}/exposure-identity.json:/etc/openit/exposure.json:ro"]
     depends_on: {identity: {condition: service_healthy}}
   identity-proxy-net:
     <<: *pause
@@ -81,7 +81,7 @@ services:
     <<: *areagw
     network_mode: "service:identity-proxy-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:4180"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${BUILTIN_DIR}/identity-proxy.json:/etc/openit/exposure.json:ro"]
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${IDENTITY_DIR}/exposure-identity-proxy.json:/etc/openit/exposure.json:ro"]
   gateway:
     <<: *hardening
     image: ${INGRESS_IMAGE:?}
