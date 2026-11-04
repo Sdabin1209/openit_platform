@@ -94,6 +94,7 @@ services:
       GATEWAY_TLS_MODE: files   # 시험 PKI 의 서버 인증서(IP SAN 포함): 시험 클라이언트가 루트 인증서 하나만 신뢰한다
       GATEWAY_HOSTS: "${GATEWAY_HOSTS:-localhost:8443}"
       GATEWAY_PUBLIC_TLS_PORT: "${PUBLIC_PORT}"
+      LOGIN_RATE_EVENTS: "1000"   # 이 스모크는 한 주소에서 로그인을 수십 번 한다: 속도 제한(R10.4, 기본 30/분)은 test-gateway-auth.sh 가 따로 시험한다
     volumes:
       - ${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro
       - ${PKI_DIR}/certs:/etc/openit/ingress-tls:ro
