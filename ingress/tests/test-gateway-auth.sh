@@ -27,7 +27,7 @@ ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 �
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c '! hn "*.x:8443" >/dev/null 2>&1 && ! hn "a\"b:8443" >/dev/null 2>&1'
 ok "계약 PublicIngressEnv 에 없는 INGRESS_ 이름(예: 옛 INGRESS_BUILTIN)은 시작 거부(종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e INGRESS_BUILTIN=x "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "GATEWAY_HOSTS 에 IP 리터럴이 있으면 시작 거부(종료 64, 계약 3.4.14: DNS 이름만 — SNI 에는 IP 를 쓸 수 없다, RFC 6066 3절)" bash -c 'docker run --rm -e GATEWAY_HOSTS="localhost:8443,127.0.0.1:8443" "$ING" validate >/dev/null 2>&1; [ $? = 64 ] && docker run --rm -e GATEWAY_HOSTS=10.0.0.5 "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
-ok "internal 모드에서 루트 내보내기 폴더에 쓸 수 없으면 시작 거부(종료 64): 신뢰가 조용히 끊기지 않는다" bash -c 'e=$(docker run --rm -e GATEWAY_HOSTS=localhost -v "$1:/etc/openit/device-ca.pem:ro" --read-only "$ING" validate 2>&1 >/dev/null); [ $? = 64 ] && grep -q "루트 내보내기 폴더" <<<"$e"' _ "$T/dpki/ca.crt"
+ok "internal 모드에서 루트 내보내기 폴더에 쓸 수 없으면 시작 거부(종료 64): 신뢰가 조용히 끊기지 않는다" bash -c 'e=$(docker run --rm -e GATEWAY_HOSTS=localhost -v "$1:/etc/openit/device-ca.pem:ro" --read-only --tmpfs /tmp "$ING" validate 2>&1 >/dev/null); [ $? = 64 ] && grep -q "루트 내보내기 폴더" <<<"$e"' _ "$T/dpki/ca.crt"
 ok "GATEWAY_HOSTS 가 없으면 시작 거부(필수, 종료 64)" bash -c 'docker run --rm "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "acme 모드에서 GATEWAY_ACME_EMAIL 이 없으면 시작 거부(조건부 필수, 종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e GATEWAY_TLS_MODE=acme "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-secrets.sh 성공" test -s "$T/tokens/devices/auth-1"
