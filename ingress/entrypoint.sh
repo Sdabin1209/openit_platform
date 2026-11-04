@@ -13,7 +13,7 @@ mkdir -p /tmp/openit
 printf '(device_client_auth) {\n\tclient_auth {\n\t\tmode verify_if_given\n\t\ttrusted_ca_cert_file %s\n\t}\n}\n' "$INGRESS_DEVICE_CA_FILE" > /tmp/openit/device-tls.caddy
 # internal 모드의 사설 CA 루트(공개 인증서)를 INGRESS_ROOT_EXPORT_DIR/root_ca.crt 로 내보낸다(계약 PublicIngressEnv, RUNTIME OUT-FILE): deploy 가 이 폴더를 감시·키오스크·직원 PC 에 나눠 준다. 쓸 수 없으면 신뢰가 조용히 끊기므로 시작하지 않는다(종료 64).
 if [ "$GATEWAY_TLS_MODE" = internal ]; then
-  [ -d "$INGRESS_ROOT_EXPORT_DIR" ] && [ -w "$INGRESS_ROOT_EXPORT_DIR" ] || { echo "ingress: internal 모드인데 루트 내보내기 폴더에 쓸 수 없다: $INGRESS_ROOT_EXPORT_DIR" >&2; exit 64; }
+  [ -d "$INGRESS_ROOT_EXPORT_DIR" ] && touch "$INGRESS_ROOT_EXPORT_DIR/.write-test" 2>/dev/null && rm -f "$INGRESS_ROOT_EXPORT_DIR/.write-test" || { echo "ingress: internal 모드인데 루트 내보내기 폴더에 쓸 수 없다: $INGRESS_ROOT_EXPORT_DIR" >&2; exit 64; }
 fi
 [ -d "$INGRESS_EXPOSURES" ] || { echo "ingress: Exposure 선언 폴더가 없다: $INGRESS_EXPOSURES" >&2; exit 64; }
 if [ "$GATEWAY_TLS_MODE" = files ]; then [ -r "$INGRESS_TLS_DIR/tls.crt" ] && [ -r "$INGRESS_TLS_DIR/tls.key" ] || { echo "ingress: files 모드인데 $INGRESS_TLS_DIR/tls.{crt,key} 가 없다" >&2; exit 64; }; fi
