@@ -101,3 +101,14 @@ def test_public_ingress_export_root_fails_without_a_started_private_ca(imgs):
     # 루트는 internal 모드 첫 기동 때 /data 에 생긴다. 기동 전 볼륨에서는 실패한다(종료 1). 성공 경로는 test-gateway-auth.sh 가 실제 공개 입구로 시험한다
     r = sh("docker", "run", "--rm", "--user", "10001:10001", imgs["public-ingress"], "export-root", "/tmp", check=False)
     assert r.returncode == 1 and "사설 CA 루트가 아직 없다" in r.stderr
+
+
+def test_identity_proxy_refuses_to_start_without_a_loopback_egress_proxy(imgs):
+    # R1.8: identity 로 가는 호출은 영역 게이트웨이의 CONNECT 출구(OPENIT_EGRESS_PROXY, loopback http://)로만 나간다
+    base = ["IDENTITY_PUBLIC_URL=https://a.example"]
+    r = rc(imgs["identity-proxy"], env=base)
+    assert r.returncode == 64 and "OPENIT_EGRESS_PROXY" in r.stderr
+    r = rc(imgs["identity-proxy"], env=base + ["OPENIT_EGRESS_PROXY=http://egress.example:3128"])
+    assert r.returncode == 64 and "OPENIT_EGRESS_PROXY" in r.stderr   # loopback 이 아니다
+    r = rc(imgs["identity-proxy"], env=base + ["OPENIT_EGRESS_PROXY=http://127.0.0.1:3128"])
+    assert r.returncode == 64 and "파일이 없다" in r.stderr and "OPENIT_EGRESS_PROXY" not in r.stderr   # 변이: 출구가 맞으면 다음 단계(비밀 파일)로 넘어간다

@@ -107,6 +107,15 @@ func proxy() {
 		die(64, "IdentityProxyEnv 위반: %s", strings.Join(bad, "; "))
 	}
 	pub := publicURL(env)
+	// 영역 밖(identity)으로 가는 모든 호출은 자기 영역 게이트웨이의 CONNECT 출구로 나간다(RUNTIME R1.8): 계약 CommonEnv.OPENIT_EGRESS_PROXY 는 loopback http:// 이어야 하고 없으면 시작하지 않는다.
+	common, badc := envcheck.Load("/etc/openit/schemas/CommonEnv.schema.json")
+	if len(badc) > 0 {
+		die(64, "CommonEnv 위반: %s", strings.Join(badc, "; "))
+	}
+	egress := common["OPENIT_EGRESS_PROXY"]
+	if egress == "" {
+		die(64, "OPENIT_EGRESS_PROXY 가 없다: identity 로 가는 호출은 영역 게이트웨이의 CONNECT 출구로만 나간다(R1.8)")
+	}
 	// 비밀 값은 읽어 보지 않고 존재만 확인한다: oauth2-proxy 가 *_FILE 로 직접 읽는다(환경에 값이 없다). 줄바꿈 없는 값이어야 한다는 것은 deploy 가 만드는 쪽의 규칙이다
 	for _, f := range []string{"IDENTITY_CLIENT_SECRET_FILE", "IDENTITY_COOKIE_SECRET_FILE"} {
 		if _, err := os.Stat(env[f]); err != nil {
@@ -130,7 +139,9 @@ func proxy() {
 		"OAUTH2_PROXY_SCOPE=openid profile email", "OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256",
 		"OAUTH2_PROXY_COOKIE_NAME=_openit_session", "OAUTH2_PROXY_COOKIE_SECURE=true", "OAUTH2_PROXY_COOKIE_SAMESITE=lax",
 		"OAUTH2_PROXY_COOKIE_EXPIRE="+env["IDENTITY_SESSION_MAX"], "OAUTH2_PROXY_COOKIE_REFRESH="+env["IDENTITY_SESSION_REFRESH"],
-		"OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true", "OAUTH2_PROXY_AUTH_LOGGING=true")
+		"OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true", "OAUTH2_PROXY_AUTH_LOGGING=true",
+		// Go 표준 net/http 의 프록시 환경 변수(ProxyFromEnvironment): https 호출(토큰 교환·키 조회)은 출구로, loopback 상류(4180 등)는 프록시를 거치지 않는다
+		"HTTPS_PROXY="+egress, "NO_PROXY=127.0.0.1,localhost,::1")
 	must(syscall.Exec("/bin/oauth2-proxy", []string{"oauth2-proxy"}, e), "oauth2-proxy 를 실행하지 못했다")
 }
 
@@ -144,7 +155,7 @@ func must(err error, msg string) {
 func cleanEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "IDENTITY_") {
+		if !strings.HasPrefix(kv, "IDENTITY_") && !strings.HasPrefix(kv, "OPENIT_EGRESS_PROXY=") {
 			out = append(out, kv)
 		}
 	}

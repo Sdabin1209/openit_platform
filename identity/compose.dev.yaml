@@ -74,14 +74,14 @@ services:
     network_mode: "service:identity-proxy-net"
     group_add: ["${SECRETS_GID}"]
     volumes: ["${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro"]
-    environment: {IDENTITY_PUBLIC_URL: "${PUBLIC_URL}"}
+    environment: {IDENTITY_PUBLIC_URL: "${PUBLIC_URL}", OPENIT_EGRESS_PROXY: "http://127.0.0.1:3128"}   # identity 로 가는 호출은 자기 영역 게이트웨이(identity-proxy-gw)의 CONNECT 출구로 나간다(R1.8)
     secrets: [identity-client-secret, identity-cookie-secret]
     depends_on: {identity-gw: {condition: service_started}}
   identity-proxy-gw:
     <<: *areagw
     network_mode: "service:identity-proxy-net"
     environment: {AREA_GATEWAY_UPSTREAM: "127.0.0.1:4180"}
-    volumes: ["${PKI_DIR}/certs:/certs:ro", "${IDENTITY_DIR}/exposure-identity-proxy.json:/etc/openit/exposure.json:ro"]
+    volumes: ["${PKI_DIR}/certs:/certs:ro", "${PROXY_EXPOSURE:-${IDENTITY_DIR}/exposure-identity-proxy.json}:/etc/openit/exposure.json:ro"]
   gateway:
     <<: *hardening
     image: ${INGRESS_IMAGE:?}

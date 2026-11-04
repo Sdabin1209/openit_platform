@@ -90,4 +90,13 @@ rc, out = kcadm("get", "events", "-r", "openit", "-q", "type=LOGIN", "-q", "max=
 rc, out = kcadm("get", "realms/openit", "--fields", "eventsExpiration"); chk("로그인 기록 보존 365일(31536000초)", "31536000" in out, out)
 print(f"  Python 확인 {fails} 건 실패"); sys.exit(1 if fails else 0)
 PY
+echo "== 출구 경유 (RUNTIME R1.8: identity-proxy 가 identity 를 부르는 호출은 영역 게이트웨이의 CONNECT 출구로만 나간다)"
+STAFFPW="$SECRETS_DIR/tokens/idp-test-staff-e2e-password"
+lc() { "$PY" -I -W ignore identity/tests/login_check.py "$PORT" "$PKI_DIR/root_ca.crt" staff-e2e "$STAFFPW"; }
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));d["egress"]=[];json.dump(d,open(sys.argv[2],"w"))' identity/exposure-identity-proxy.json "$W/proxy-noegress.json"
+ok "기준: 출구가 identity 를 허용하면 로그인이 된다" test "$(lc)" = OK
+PROXY_EXPOSURE=$W/proxy-noegress.json dcp up -d --force-recreate identity-proxy-gw >/dev/null 2>&1
+ok "변이: 출구가 identity 를 허용하지 않으면(egress 선언 비움 -> CONNECT 403) 같은 로그인이 실패한다 = 호출이 출구를 거친다" test "$(lc)" = FAIL
+dcp up -d --force-recreate identity-proxy-gw >/dev/null 2>&1
+ok "복구: 선언을 되돌리면 로그인이 다시 된다" test "$(lc)" = OK
 echo; [ $FAILS = 0 ] && echo "통과: IdP 스모크 시험" || { echo "실패: $FAILS건"; exit 1; }
