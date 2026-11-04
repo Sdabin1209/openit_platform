@@ -18,6 +18,7 @@ if [ "$GATEWAY_TLS_MODE" = files ]; then [ -r "$INGRESS_TLS_DIR/tls.crt" ] && [ 
 ( umask 077; /opt/gw/bin/python /usr/local/bin/gen-devices.py "$INGRESS_DEVICE_TOKENS_DIR" > /tmp/openit/devices.caddy ) || { echo "ingress: 기기 토큰 폴더가 계약 형식이 아니다: $INGRESS_DEVICE_TOKENS_DIR" >&2; exit 65; }
 # 파생 값은 이미지가 만든다: 오류 본문의 pipeline_schema_version(계약 패키지 현행 값)과 CSRF 허용 호스트 목록(GATEWAY_HOSTS 에서)
 export PIPELINE_SCHEMA_VERSION=$(/opt/gw/bin/python -c 'import boundary_contracts as b;print(b.PIPELINE_SCHEMA_VERSION)')
+export GATEWAY_SITES=$(/opt/gw/bin/python /usr/local/bin/gen-host-names.py --sites "$GATEWAY_HOSTS") || exit 65   # Caddy 사이트 주소 목록(쉼표 뒤 공백 정규화)
 export GATEWAY_HOST_NAMES=$(/opt/gw/bin/python /usr/local/bin/gen-host-names.py "$GATEWAY_HOSTS") || exit 65
 case "${1:-run}" in
   run) exec caddy run --config /etc/caddy/Caddyfile ;;

@@ -51,7 +51,7 @@ def test_identity_db_serves_tls_and_picks_up_a_renewed_certificate_without_resta
         assert start_time(st) == t0, "서버가 재시작됐다"   # 재시작하지 않고 설정만 다시 읽었다
         # 변이: 계정은 첫 초기화 때 DatabaseDeclaration 대로 만들어졌다(암호는 파일에서)
         r = sh("docker", "exec", st.containers[-1], "psql", "-X", "-q", "-U", "postgres", "-d", "postgres", "-tAc", "select rolname||':'||rolsuper from pg_roles where rolname='identity'", check=False)
-        assert r.stdout.strip() == "identity:f", r.stdout + r.stderr
+        assert r.stdout.strip() == "identity:false", r.stdout + r.stderr
     finally:
         sh("docker", "rmi", tag, check=False)
         st.close()
