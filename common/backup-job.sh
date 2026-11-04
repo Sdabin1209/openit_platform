@@ -40,7 +40,8 @@ elif [ $rc -ne 0 ]; then
   net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true
   finish failed "" 0 1 PERMISSION_DENIED "백업 저장소가 거절했다(자격·암호)" false
 fi
-pg_fail() { net_err && finish failed "" 0 75 UNAVAILABLE "데이터베이스에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "$1" false; }
+pg_net_err() { grep -qiE 'could not (translate|connect)|connection refused|timeout expired|network is unreachable|server closed the connection|no route to host' "$ERR"; }   # 인증 실패(password authentication failed)는 닿은 것이다: 재시도 가능이 아니다
+pg_fail() { pg_net_err && finish failed "" 0 75 UNAVAILABLE "데이터베이스에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "$1" false; }
 if [ "$engine" = postgres ]; then   # 데이터베이스를 가진 영역의 백업(R10.1): 실행 중인 DB 를 일관된 한 시점의 덤프 파일로 꺼내 폴더에 두고 그 폴더를 백업한다. 덤프 파일은 비밀 URI 를 담지 않는다
   urlfile=$(resolve "$urlarg") || finish failed "" 0 1 INVALID_RECORD "DB 접속 URI 파일 환경 변수가 없다" false
   [ -r "$urlfile" ] || finish failed "" 0 1 INVALID_RECORD "DB 접속 URI 파일을 읽을 수 없다" false
