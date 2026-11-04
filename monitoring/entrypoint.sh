@@ -9,7 +9,9 @@ eval "$ENVOUT"
 # 설정 틀(이미지 안 /etc/openit/monitoring)의 두 자리(@TARGETS_DIR@, @ROOT_CA@)를 입력(MONITORING_TARGETS_DIR, MONITORING_ROOT_CA)으로 채워 /tmp 에 둔다: 배치는 이미지 안 설정 경로를 알 필요가 없다
 I=/etc/openit/monitoring; C=/tmp/openit-monitoring; role=${1:-prometheus}; [ $# -eq 0 ] || shift
 mkdir -p "$C"
-for f in prometheus.yml alertmanager.yml blackbox.yml json-exporter.yml; do sed -e "s|@TARGETS_DIR@|$MONITORING_TARGETS_DIR|g" -e "s|@ROOT_CA@|$MONITORING_ROOT_CA|g" "$I/$f" > "$C/$f"; done
+# 틀 파일(.yml.tmpl)은 @자리표시@ 때문에 YAML 이 아니다(그래서 .yml 이 아닌 이름): 채운 결과만 .yml 로 둔다
+for f in prometheus blackbox json-exporter; do sed -e "s|@TARGETS_DIR@|$MONITORING_TARGETS_DIR|g" -e "s|@ROOT_CA@|$MONITORING_ROOT_CA|g" "$I/$f.yml.tmpl" > "$C/$f.yml"; done
+cp "$I/alertmanager.yml" "$C/alertmanager.yml"
 ln -sfn "$I/rules" "$C/rules"
 case "$role" in
   prometheus)   exec prometheus --config.file="$C/prometheus.yml" --storage.tsdb.path=/prometheus --storage.tsdb.retention.time="$PROMETHEUS_RETENTION" --web.listen-address=:9090 "$@" ;;   # 15d: Prometheus 기본값(측정 안 함)

@@ -40,3 +40,6 @@ HEALTHCHECK 는 이미지에 있다(CA 는 `step ca health`, 인증서 컨테이
 
 ## monitoring node 역할의 입력 (스키마 밖의 마운트)
 `node`: `/host`(호스트 `/` 읽기 전용: 파일시스템·시계 수집), `/textfile`(읽기 전용: 주기 잡이 쓴 지표 파일). 환경 변수는 없다.
+
+## export-root 의 출력 폴더
+`export-root <폴더>` 는 쓸 수 있는 아무 폴더나 받는다(예: 이미지 VOLUME 인 `/config`). 별도 입력 변수나 VOLUME 은 만들지 않았다(폴더는 부명령의 인자라 환경 스키마에 없다).

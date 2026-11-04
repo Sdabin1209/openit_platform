@@ -24,7 +24,7 @@ COPY --from=node /bin/node_exporter /bin/
 COPY --from=json /bin/json_exporter /bin/
 COPY --from=envcheck /envcheck /usr/local/bin/envcheck
 COPY --from=boundary_contracts schemas/MonitoringEnv.schema.json /etc/openit/schemas/
-COPY config/prometheus.yml config/alertmanager.yml config/blackbox.yml config/json-exporter.yml /etc/openit/monitoring/
+COPY config/prometheus.yml.tmpl config/alertmanager.yml config/blackbox.yml.tmpl config/json-exporter.yml.tmpl /etc/openit/monitoring/
 COPY config/rules /etc/openit/monitoring/rules
 COPY --chmod=755 entrypoint.sh /usr/local/bin/openit-monitoring.sh
 # 상태 폴더는 Docker 표준 VOLUME 으로 선언한다: 시계열 /prometheus, 경보 상태 /alertmanager

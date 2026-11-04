@@ -66,7 +66,7 @@ class Mon:
         t.chmod(0o755)
         for p in t.glob("*"): p.chmod(0o644)
         # 시험 속도: 수집 주기만 15초로 바꾼 사본을 덮어 마운트한다(그 밖의 설정·scrape_timeout 10s 는 그대로)
-        cfg = (ROOT / "monitoring/config/prometheus.yml").read_text().replace("scrape_interval: 1m", "scrape_interval: 15s")
+        cfg = (ROOT / "monitoring/config/prometheus.yml.tmpl").read_text().replace("scrape_interval: 1m", "scrape_interval: 15s")
         (s.d / "prometheus.yml").write_text(cfg); (s.d / "prometheus.yml").chmod(0o644)
         (s.d / "root_pki").mkdir(); (s.d / "root_pki/root_ca.crt").write_text(unrelated_root(s.d) + (s.d / "root_ca.crt").read_text())   # 여러 PEM 을 이어 붙인 묶음(MONITORING_ROOT_CA 가 받는 형식): 관계없는 루트 + 진짜 루트; (s.d / "root_pki").chmod(0o755); (s.d / "root_pki/root_ca.crt").chmod(0o644)
         pki = ["-v", f"{s.d}/root_pki:/etc/openit/pki:ro"]
@@ -74,7 +74,7 @@ class Mon:
             s.run(role, "--network-alias", alias, *HARD, *pki, img, role)
         s.run("alertmanager", "--network-alias", "alertmanager", *HARD, "--tmpfs", "/alertmanager:uid=65534", img, "alertmanager")
         self.prom = s.run("prometheus", "--network-alias", "prometheus", *HARD, "--tmpfs", "/prometheus:uid=65534", *pki, "-v", f"{s.d}/targets:/etc/openit/monitoring/targets:ro",
-                          "-v", f"{s.d}/prometheus.yml:/etc/openit/monitoring/prometheus.yml:ro", img, "prometheus")
+                          "-v", f"{s.d}/prometheus.yml:/etc/openit/monitoring/prometheus.yml.tmpl:ro", img, "prometheus")
         self.node = s.run("node", "--network-alias", "node-exporter", *HARD, "-v", "/:/host:ro", "--tmpfs", "/textfile", img, "node")
 
     def q(self, expr):
