@@ -1,5 +1,0 @@
-Metadata-Version: 2.4
-Name: openit-platform
-Version: 0.1.0
-Summary: platform 영역: 공개 입구, 사람 인증, 인증서 발급, 감시, 백업 저장소, 영역 게이트웨이 이미지
-Requires-Python: >=3.10
