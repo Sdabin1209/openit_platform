@@ -35,11 +35,21 @@ HEALTHCHECK 는 이미지에 있다(CA 는 `step ca health`, 인증서 컨테이
 ## 상태 폴더는 이미지가 VOLUME 으로 선언한다
 배치는 `docker image inspect` 의 `Config.Volumes` 를 읽어 마운트하고 경로를 따로 알지 않는다: step-ca `/home/step`·`/tokens`·`/certs`, monitoring `/prometheus`·`/alertmanager`, backup-store `/data`, public-ingress `/data`(internal 모드의 사설 CA)·`/config`, identity-db `/var/lib/postgresql/data`(공식 postgres 선언 그대로). 시험: `tests/test_env_contract.py::test_state_folders_are_declared_as_docker_volumes`.
 
-## 공개 입구의 사설 CA 를 믿는 길 (`export-root`)
-`docker run --rm --volumes-from <공개 입구 컨테이너> -v <출력 폴더>:/out --user 10001:10001 <public-ingress 이미지> export-root /out` → `/out/root_ca.crt`(공개 인증서). 루트는 internal 모드 첫 기동 때 `/data` 에 생기므로 같은 `/data` 볼륨을 써야 한다(없으면 종료 1). 감시는 이 파일을 step-ca 루트와 이어 붙인 한 파일(여러 PEM 허용)을 `MONITORING_ROOT_CA` 로 받는다. 시험: `ingress/tests/test-gateway-auth.sh`(내보낸 루트로 인증서 검증), `tests/test_env_contract.py`(이어 붙인 묶음 수용·쓰레기 거부).
+## 공개 입구의 사설 CA 를 믿는 길 (루트 내보내기, 계약 3.4.16)
+internal 모드의 공개 입구는 자기 사설 CA 의 루트 인증서(공개)를 `INGRESS_ROOT_EXPORT_DIR`(기본 `/etc/openit/root-out`, deploy 가 연결하는 쓰기 가능한 출력 마운트)에 `root_ca.crt` 로 쓴다 — 루트가 생기거나 바뀔 때마다 같은 폴더에 쓰고 `rename` 으로 바꿔 넣는다(5초 주기로 확인, 측정하지 않은 값). 폴더에 쓸 수 없으면 시작하지 않는다(종료 64). 부명령이나 이미지 안 경로에 기대지 않는다. 감시는 이 파일을 step-ca 루트와 이어 붙인 한 파일(여러 PEM 허용)을 `MONITORING_ROOT_CA` 로 받는다. 시험: `ingress/tests/test-gateway-auth.sh`(내보낸 루트로 인증서 검증, 쓸 수 없는 폴더는 종료 64), `tests/test_env_contract.py`.
 
 ## monitoring node 역할의 입력 (스키마 밖의 마운트)
 `node`: `/host`(호스트 `/` 읽기 전용: 파일시스템·시계 수집), `/textfile`(읽기 전용: 주기 잡이 쓴 지표 파일). 환경 변수는 없다.
 
 ## export-root 의 출력 폴더
 `export-root <폴더>` 는 쓸 수 있는 아무 폴더나 받는다(예: 이미지 VOLUME 인 `/config`). 별도 입력 변수나 VOLUME 은 만들지 않았다(폴더는 부명령의 인자라 환경 스키마에 없다).
+
+
+## 이미지가 내는 잡 (라벨 io.openit.jobs, JobsDeclaration, 계약 3.4.16)
+정본은 `<서비스 폴더>/jobs-<서비스>.json` 이고 `scripts/build-image.sh` 가 계약 validator 로 검증해 라벨에 넣는다.
+| 이미지 | 잡 | 하는 일 | 설정 파일 | needs |
+|---|---|---|---|---|
+| identity | `register-users` | realm openit 에 사용자와 역할 그룹을 만들고 이미 있으면 같은 상태로 맞춘다(멱등). `enabled:false` 는 그룹 없는 승인 대기 | `/etc/openit/identity-users.json` (IdentityUsersConfig) | - |
+| public-ingress | `gateway-backup` / `gateway-restore` | `/data`(gateway-data) 를 백업 저장소로 백업 / 되돌림 | - | gateway-data |
+| step-ca | `pki-backup` / `pki-restore` | `$STEP_CA_HOME`(pki-ca) 를 백업 / 되돌림. 저장소 인증서는 밖에서 준 `/etc/openit/pki/root_ca.crt` 로 검증 | - | pki-ca |
+백업·복구 잡: 입력은 CommonEnv(`OPENIT_BACKUP_URL`, `OPENIT_BACKUP_CREDENTIALS_FILE`, `OPENIT_BACKUP_REPO_PASSWORD_FILE`)와 잡의 `env` 목록. 결과는 표준 출력 마지막 줄 BackupJobResult, 종료 코드 0 ok / 75 재시도 가능 / 1 실패. 스냅숏에 태그(`gateway-data`, `pki-ca`)를 붙여 같은 저장소를 나눠 쓴다. 백업 저장소가 platform 안이라 영역 안 통신이다(영역 게이트웨이 출구를 거치지 않는다). 한계: 실행 중인 서비스의 폴더를 파일 단위로 복사한다(스냅숏 도중 쓰기는 다음 스냅숏에 들어간다).

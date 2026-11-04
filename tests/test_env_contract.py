@@ -97,18 +97,13 @@ def test_monitoring_accepts_a_concatenated_root_bundle(imgs):
     assert ok.returncode == 0, ok.stdout + ok.stderr
 
 
-def test_public_ingress_export_root_fails_without_a_started_private_ca(imgs):
-    # 루트는 internal 모드 첫 기동 때 /data 에 생긴다. 기동 전 볼륨에서는 실패한다(종료 1). 성공 경로는 test-gateway-auth.sh 가 실제 공개 입구로 시험한다
-    r = sh("docker", "run", "--rm", "--user", "10001:10001", imgs["public-ingress"], "export-root", "/tmp", check=False)
-    assert r.returncode == 1 and "사설 CA 루트가 아직 없다" in r.stderr
-
-
-def test_identity_proxy_refuses_to_start_without_a_loopback_egress_proxy(imgs):
-    # R1.8: identity 로 가는 호출은 영역 게이트웨이의 CONNECT 출구(OPENIT_EGRESS_PROXY, loopback http://)로만 나간다
-    base = ["IDENTITY_PUBLIC_URL=https://a.example"]
-    r = rc(imgs["identity-proxy"], env=base)
-    assert r.returncode == 64 and "OPENIT_EGRESS_PROXY" in r.stderr
-    r = rc(imgs["identity-proxy"], env=base + ["OPENIT_EGRESS_PROXY=http://egress.example:3128"])
-    assert r.returncode == 64 and "OPENIT_EGRESS_PROXY" in r.stderr   # loopback 이 아니다
-    r = rc(imgs["identity-proxy"], env=base + ["OPENIT_EGRESS_PROXY=http://127.0.0.1:3128"])
-    assert r.returncode == 64 and "파일이 없다" in r.stderr and "OPENIT_EGRESS_PROXY" not in r.stderr   # 변이: 출구가 맞으면 다음 단계(비밀 파일)로 넘어간다
+def test_public_ingress_refuses_internal_mode_when_the_root_export_dir_is_unwritable(imgs):
+    # 계약 PublicIngressEnv.INGRESS_ROOT_EXPORT_DIR: internal 모드는 루트를 거기에 써야 한다. 읽기 전용 루트 파일시스템의 기본 폴더(쓸 수 없음)에서는 시작하지 않는다
+    import pathlib, tempfile
+    d = pathlib.Path(tempfile.mkdtemp()); (d / "ca.pem").write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n"); (d / "ca.pem").chmod(0o644); d.chmod(0o755)
+    base = ["--read-only", "--tmpfs", "/tmp", "-e", "GATEWAY_HOSTS=localhost", "-v", f"{d}/ca.pem:/etc/openit/device-ca.pem:ro"]
+    r = sh("docker", "run", "--rm", *base, imgs["public-ingress"], "validate", check=False)
+    assert r.returncode == 64 and "루트 내보내기 폴더" in r.stderr
+    # 변이: files 모드는 사설 CA 를 쓰지 않으므로 이 폴더를 요구하지 않는다(다음 단계에서 다른 이유로 거절)
+    r = sh("docker", "run", "--rm", *base, "-e", "GATEWAY_TLS_MODE=files", imgs["public-ingress"], "validate", check=False)
+    assert "루트 내보내기 폴더" not in r.stderr

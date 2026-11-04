@@ -1,0 +1,4 @@
+{"jobs": [
+ {"name": "pki-backup", "argv": ["/usr/local/bin/platform-backup-job", "backup", "pki-ca", "@STEP_CA_HOME", "/etc/openit/pki/root_ca.crt"], "idempotent": true, "secret_files": ["OPENIT_BACKUP_CREDENTIALS_FILE", "OPENIT_BACKUP_REPO_PASSWORD_FILE"], "needs": ["pki-ca"], "env": ["OPENIT_BACKUP_URL", "STEP_CA_HOME"], "timeout_seconds": 1800},
+ {"name": "pki-restore", "argv": ["/usr/local/bin/platform-backup-job", "restore", "pki-ca", "@STEP_CA_HOME", "/etc/openit/pki/root_ca.crt"], "idempotent": true, "secret_files": ["OPENIT_BACKUP_CREDENTIALS_FILE", "OPENIT_BACKUP_REPO_PASSWORD_FILE"], "needs": ["pki-ca"], "env": ["OPENIT_BACKUP_URL", "STEP_CA_HOME"], "timeout_seconds": 1800}
+]}

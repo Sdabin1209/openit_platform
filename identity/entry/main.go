@@ -1,7 +1,7 @@
 // identity-entry: platform 사람 인증 이미지(identity=Keycloak, identity-proxy=oauth2-proxy, identity-db 의 전 단계)의 진입점. 계약 입력(IdentityEnv·IdentityProxyEnv)만 받고
 // Keycloak 의 KC_*·realm 가져오기 파일·--config-file, oauth2-proxy 의 OAUTH2_PROXY_* 는 여기서 만든다(구조 규칙 1·6: 배치가 제품 내부 설정을 쓰지 않는다).
 // 비밀은 파일로만 받는다(D84): 값은 환경 변수·로그에 넣지 않고 0600 파일(tmpfs)로 제품에 넘긴다. 위반이면 종료 64.
-// 사용: identity-entry keycloak | proxy
+// 사용: identity-entry keycloak | proxy | users <설정 파일>
 package main
 
 import (
@@ -171,6 +171,8 @@ func main() {
 		keycloak()
 	case "proxy":
 		proxy()
+	case "users":
+		usersJob(os.Args[2:])
 	default:
 		die(64, "알 수 없는 부명령: %s", os.Args[1])
 	}

@@ -1,0 +1,1 @@
+{"jobs": [{"name": "register-users", "argv": ["/usr/local/bin/identity-entry", "users", "/etc/openit/identity-users.json"], "idempotent": true, "secret_files": ["IDENTITY_ADMIN_PASSWORD_FILE"], "env": ["IDENTITY_ROOT_CA"], "config": {"container_path": "/etc/openit/identity-users.json", "schema": "IdentityUsersConfig"}, "timeout_seconds": 300}]}

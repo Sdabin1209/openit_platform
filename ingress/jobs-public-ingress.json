@@ -1,0 +1,4 @@
+{"jobs": [
+ {"name": "gateway-backup", "argv": ["/usr/local/bin/platform-backup-job", "backup", "gateway-data", "/data", "@INGRESS_ROOT_CA"], "idempotent": true, "secret_files": ["OPENIT_BACKUP_CREDENTIALS_FILE", "OPENIT_BACKUP_REPO_PASSWORD_FILE"], "needs": ["gateway-data"], "env": ["OPENIT_BACKUP_URL", "INGRESS_ROOT_CA"], "timeout_seconds": 1800},
+ {"name": "gateway-restore", "argv": ["/usr/local/bin/platform-backup-job", "restore", "gateway-data", "/data", "@INGRESS_ROOT_CA"], "idempotent": true, "secret_files": ["OPENIT_BACKUP_CREDENTIALS_FILE", "OPENIT_BACKUP_REPO_PASSWORD_FILE"], "needs": ["gateway-data"], "env": ["OPENIT_BACKUP_URL", "INGRESS_ROOT_CA"], "timeout_seconds": 1800}
+]}

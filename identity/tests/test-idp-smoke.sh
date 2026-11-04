@@ -38,9 +38,37 @@ dcp up -d --wait --wait-timeout 300 identity identity-gw >"$W/up1.log" 2>&1; ok 
 dcp up -d --wait --wait-timeout 120 identity-proxy identity-proxy-gw gateway >"$W/up2.log" 2>&1; ok "공개 입구가 응답한다(/healthz)" bash -c "for i in \$(seq 1 30); do curl -sk -m 3 --resolve localhost:$PORT:127.0.0.1 -o /dev/null -w '%{http_code}' https://localhost:$PORT/healthz | grep -q 200 && exit 0; sleep 1; done; exit 1"   # 준비 확인: 응답이 올 때까지(재시도 덧붙임이 아니라 기동 대기)
 KCC=$(dcp ps -q identity)
 ok "identity 프로세스 환경에 비밀 값이 없다(파일만, D84)" bash -c "! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $IDP_SECRETS/db-identity)\" && ! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $IDP_SECRETS/identity-client-secret)\""
-ok "시험 사용자를 Keycloak 에 만든다(운영 입구: kcadm)" bash identity/scripts/idp-test-users.sh "$KCC"
+# 사용자 등록 잡(라벨 io.openit.jobs 의 register-users, 계약 IdentityUsersConfig): deploy 가 하는 그대로 라벨의 argv·config 경로·비밀 파일로 돌린다. 시험이 Keycloak 도구를 쓰지 않는다.
+JOBARGV=$("$DOCKER" image inspect "$IDP_IMG" --format '{{index .Config.Labels "io.openit.jobs"}}' | python3 -c 'import json,sys;j=json.load(sys.stdin)["jobs"][0];print("\n".join(j["argv"]))')
+JOBCFG=$("$DOCKER" image inspect "$IDP_IMG" --format '{{index .Config.Labels "io.openit.jobs"}}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["jobs"][0]["config"]["container_path"])')
+cat > "$W/usersjob.sh" <<JOB
+#!/usr/bin/env bash
+# usersjob.sh <설정 JSON> [관리자 암호 파일]: 라벨이 선언한 잡을 deploy 가 연결하는 것(설정 파일, 비밀 파일, 루트 인증서, identity 가 있는 네트워크)과 함께 돌린다
+mapfile -t A < <(printf '%s' '$JOBARGV')
+exec $DOCKER run --rm --network ${P}_auth --user 1000:1000 --group-add $SECRETS_GID --read-only --tmpfs /tmp -v $PKI_DIR/root_ca.crt:/ca.pem:ro -v "\${2:-$IDP_SECRETS/identity-admin-password}":/run/secrets/adminpw:ro \\
+  -v $SECRETS_DIR/tokens:/pw:ro -v $W:/wk:ro -v "\$1":$JOBCFG:ro -e IDENTITY_ROOT_CA=/ca.pem -e IDENTITY_ADMIN_PASSWORD_FILE=/run/secrets/adminpw --entrypoint "\${A[0]}" $IDP_IMG "\${A[@]:1}"
+JOB
+chmod +x "$W/usersjob.sh"; export USERSJOB=$W/usersjob.sh
+python3 - "$ROOT/ingress/tests/gateway-oidc/accounts.test.conf" "$W/users.json" <<'PY'
+import json, sys
+users = []
+for line in open(sys.argv[1]):
+    f = line.split()
+    if not f or f[0].startswith("#"): continue
+    users.append({"username": f[0], "groups": [] if f[1] == "-" else f[1].split(","), "password_file": f"/pw/idp-test-{f[0]}-password"})
+json.dump({"users": users}, open(sys.argv[2], "w"))
+PY
+chmod 644 "$W/users.json"
+ok "사용자 등록 잡이 시험 사용자를 만든다(라벨의 argv·config 경로 그대로)" bash "$USERSJOB" "$W/users.json"
+ok "멱등: 같은 설정으로 다시 돌려도 성공한다" bash "$USERSJOB" "$W/users.json"
+ok "변이: 관리자 암호가 틀리면 잡이 실패한다" bash -c '! bash "$1" "$2" "$3" >/dev/null 2>&1' _ "$USERSJOB" "$W/users.json" "$IDP_SECRETS/db-identity"
+"$DOCKER" exec "$KCC" /opt/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080/auth --realm master --user kcadmin --password "$(cat "$IDP_SECRETS/identity-admin-password")" --config /tmp/kcadm.config >/dev/null 2>&1   # 시험의 확인용(이벤트 조회)
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));d["users"]=[{"username":"reconcile-e2e","groups":["staff","clinician"],"password_file":"/pw/idp-test-staff-e2e-password"}];json.dump(d,open(sys.argv[2],"w"))' "$W/users.json" "$W/rec1.json"
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));d["users"][0]["groups"]=["staff"];json.dump(d,open(sys.argv[2],"w"))' "$W/rec1.json" "$W/rec2.json"
+chmod 644 "$W"/rec*.json; bash "$USERSJOB" "$W/rec1.json" >/dev/null 2>&1; bash "$USERSJOB" "$W/rec2.json" >/dev/null 2>&1
+ok "상태를 맞춘다: 그룹을 줄인 설정으로 다시 돌리면 남은 그룹이 staff 뿐이다" bash -c 'u=$($0 exec -i $1 /opt/keycloak/bin/kcadm.sh get users -r openit -q username=reconcile-e2e --fields id --format csv --noquotes --config /tmp/kcadm.config | tr -d "\r\n"); g=$($0 exec -i $1 /opt/keycloak/bin/kcadm.sh get users/$u/groups -r openit --fields name --format csv --noquotes --config /tmp/kcadm.config | tr -d "\r" | sort | tr "\n" ","); [ "$g" = "staff," ]' "$DOCKER" "$KCC"
 echo "== 로그인·역할 (공개 입구 경유)"
-export W PORT KCC; PYTHONPATH=identity/tests "$PY" -I -W ignore - <<'PY' || FAILS=$((FAILS+1))
+export W PORT KCC USERSJOB; PYTHONPATH=identity/tests "$PY" -I -W ignore - <<'PY' || FAILS=$((FAILS+1))
 import json, os, sys, subprocess, urllib.parse
 sys.path.insert(0, "identity/tests")
 from idp_client import Client
@@ -81,9 +109,10 @@ st, h, b = req("newbie-e2e", "GET", "/v1/staff/alerts") if jar else (0, {}, b"")
 def kcadm(*a):
     r = subprocess.run(["docker", "exec", "-i", os.environ["KCC"], "/opt/keycloak/bin/kcadm.sh", *a, "--config", "/tmp/kcadm.config"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
     return r.returncode, r.stdout
-rc, out = kcadm("get", "users", "-r", "openit", "-q", "username=newbie-e2e", "--fields", "id", "--format", "csv", "--noquotes"); uid = out.strip()
-rc, out = kcadm("get", "groups", "-r", "openit", "-q", "search=staff", "--fields", "id,name", "--format", "csv", "--noquotes"); gid = ([l.split(",")[0] for l in out.splitlines() if l.strip().endswith(",staff")] or [""])[0]
-rc, _ = kcadm("update", f"users/{uid}/groups/{gid}", "-r", "openit", "-s", "realm=openit", "-s", f"userId={uid}", "-s", f"groupId={gid}", "-n"); chk("admin 이 staff 그룹을 부여한다(승인)", rc == 0 and bool(uid) and bool(gid))
+open(os.environ["W"] + "/newpw", "w").write(newpw); os.chmod(os.environ["W"] + "/newpw", 0o644)
+json.dump({"users": [{"username": "newbie-e2e", "groups": ["staff"], "password_file": "/wk/newpw"}]}, open(os.environ["W"] + "/approve.json", "w")); os.chmod(os.environ["W"] + "/approve.json", 0o644)
+rc = subprocess.run(["bash", os.environ["USERSJOB"], os.environ["W"] + "/approve.json"], capture_output=True).returncode
+chk("admin 이 staff 그룹을 부여한다(승인 = 사용자 등록 잡을 groups:[staff] 로 다시 돌림)", rc == 0)
 sessions["newbie-e2e"] = c.login("newbie-e2e", newpw)
 st, h, b = req("newbie-e2e", "GET", "/v1/staff/alerts"); chk("승인 뒤 다시 로그인하면 직원 API 가 통과한다", st in (502, 503, 504), (st, b[:80]))
 rc, out = kcadm("get", "events", "-r", "openit", "-q", "type=LOGIN", "-q", "max=5"); chk("로그인 이벤트가 기록된다", rc == 0 and '"type" : "LOGIN"' in out, out[:120])

@@ -6,7 +6,7 @@
 set -uo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
 ING=platform-ingress:test-$$   # D22: 이미지 태그에 리포 이름 + 프로세스 접미사
-T=$(mktemp -d); export SECRETS_DIR=$T
+T=$(mktemp -d); export SECRETS_DIR=$T; mkdir -p "$T/root-out"; chmod 777 "$T/root-out"   # 계약 INGRESS_ROOT_EXPORT_DIR 의 출력 마운트
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry identity identity-proxy || { echo "시험 PKI 를 만들지 못했다"; exit 1; }   # 게이트웨이는 상류를 https 로 부르므로 가짜 상류 앞에 TLS 를 붙인다(ADR 0060)
 printf '{"source_dir":"%s","revision":"abcdef1","versions":{"boundary":"v%s"},"variant":"public-ingress","dependency_sources":{"boundary":"%s"},"image_tag":"%s"}' "$ROOT" "$("$ROOT/.venv/bin/python" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')" "$(bash "$ROOT/scripts/fetch-boundary-src.sh" "$T/boundary-src")" "$ING" > "$T/build-req.json"
 bash "$ROOT/scripts/build-image.sh" "$T/build-req.json" >/dev/null 2>"$T/build.err" || { tail -3 "$T/build.err"; echo "공개 입구 이미지를 만들지 못했다"; exit 1; }
@@ -16,7 +16,7 @@ cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker net
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | grep -v "\"level\":\"\(info\|warn\)\"" | tail -3 | tr "\n" " " | cut -c1-300)"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 EXP="$ROOT/ingress/tests/exposures"
-ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
+ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/root-out:/etc/openit/root-out" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
 val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) "$ING" validate; }   # 이미지의 validate 부명령: 진입점과 같은 준비(환경 검증·경로 표·기기 조각) 뒤 caddy validate
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 hn() { docker run --rm --entrypoint /opt/gw/bin/python "$ING" /usr/local/bin/gen-host-names.py "$1"; }
@@ -26,6 +26,7 @@ ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 �
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c '! hn "*.x:8443" >/dev/null 2>&1 && ! hn "a\"b:8443" >/dev/null 2>&1'
 ok "계약 PublicIngressEnv 에 없는 INGRESS_ 이름(예: 옛 INGRESS_BUILTIN)은 시작 거부(종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e INGRESS_BUILTIN=x "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "GATEWAY_HOSTS 에 IP 리터럴이 있으면 시작 거부(종료 64, 계약 3.4.14: DNS 이름만 — SNI 에는 IP 를 쓸 수 없다, RFC 6066 3절)" bash -c 'docker run --rm -e GATEWAY_HOSTS="localhost:8443,127.0.0.1:8443" "$ING" validate >/dev/null 2>&1; [ $? = 64 ] && docker run --rm -e GATEWAY_HOSTS=10.0.0.5 "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
+ok "internal 모드에서 루트 내보내기 폴더에 쓸 수 없으면 시작 거부(종료 64): 신뢰가 조용히 끊기지 않는다" bash -c 'e=$(docker run --rm -e GATEWAY_HOSTS=localhost -v "$1:/etc/openit/device-ca.pem:ro" --read-only "$ING" validate 2>&1 >/dev/null); [ $? = 64 ] && grep -q "루트 내보내기 폴더" <<<"$e"' _ "$T/dpki/ca.crt"
 ok "GATEWAY_HOSTS 가 없으면 시작 거부(필수, 종료 64)" bash -c 'docker run --rm "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "acme 모드에서 GATEWAY_ACME_EMAIL 이 없으면 시작 거부(조건부 필수, 종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e GATEWAY_TLS_MODE=acme "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1   # 기기 CA(필수 입력 INGRESS_DEVICE_CA_FILE)
@@ -214,9 +215,9 @@ for pth in /healthz /readyz; do AN=$((AN+1)); hb=$(curl -sk -m 10 -D "$T/hh" "ht
 AN=$((AN+1)); big=$(head -c 9437184 /dev/zero | curl -sk -o /dev/null -m 30 -w '%{http_code}' -X POST --data-binary @- -H 'Content-Type: text/plain' "https://localhost:$CP/v1/materials?question_set_id=x" 2>/dev/null || true)
 if [ "$big" = 413 ]; then echo "  PASS 8MiB 초과 본문은 413"; else echo "  FAIL 8MiB 초과 본문이 $big (기대 413)"; FAILS=$((FAILS+1)); fi
 # 이미지 안 자체 점검 명령(selfcheck-unauth): 선언에서 기대 행을 만들어 실제 공개 입구에 인증 없는 요청을 보낸다(정본은 이 이미지 한 곳, deploy 는 이 명령을 실행만 한다). rc=0 일치
-mkdir -p "$T/out"; chmod 777 "$T/out"
-AN=$((AN+2)); if docker run --rm --volumes-from $CN -v "$T/out:/out" --user 10001:10001 "$ING" export-root /out >/dev/null 2>&1 && grep -q "BEGIN CERTIFICATE" "$T/out/root_ca.crt"; then echo "  PASS export-root: 공개 입구의 사설 CA 루트를 내보낸다(감시·직원 PC 가 믿는 길)"; else echo "  FAIL export-root 가 루트를 내보내지 못했다"; FAILS=$((FAILS+1)); fi
-cp "$T/out/root_ca.crt" "$T/gw-root.crt"   # 점검은 인증서 검증을 끄지 않고 이 루트로 검증한다
+AN=$((AN+2)); for i in $(seq 1 30); do [ -s "$T/root-out/root_ca.crt" ] && break; sleep 1; done   # 준비 확인: 공개 입구가 루트를 내보낼 때까지(첫 기동 때 CA 가 만들어진 뒤)
+if grep -q "BEGIN CERTIFICATE" "$T/root-out/root_ca.crt" 2>/dev/null; then echo "  PASS 공개 입구가 사설 CA 루트를 INGRESS_ROOT_EXPORT_DIR/root_ca.crt 로 내보낸다(감시·직원 PC 가 믿는 길)"; else echo "  FAIL 루트가 내보내지지 않았다"; FAILS=$((FAILS+1)); fi
+cp "$T/root-out/root_ca.crt" "$T/gw-root.crt"   # 점검은 인증서 검증을 끄지 않고 이 루트로 검증한다
 if openssl s_client -connect 127.0.0.1:$CP -servername localhost -CAfile "$T/gw-root.crt" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then echo "  PASS 내보낸 루트로 공개 입구 인증서가 검증된다"; else echo "  FAIL 내보낸 루트로 공개 입구 인증서가 검증되지 않는다"; FAILS=$((FAILS+1)); fi
 selfcheck() { docker run --rm --network $NET -v "$1:/etc/openit/exposures:ro" -v "$T/gw-root.crt:/ca.crt:ro" --entrypoint selfcheck-unauth "$ING" "https://gateway:8443" --cacert /ca.crt; }
 AN=$((AN+1)); if out=$(selfcheck "$EXP" 2>&1); then echo "  PASS 자체 점검 명령: $(echo "$out" | tail -1)"; else echo "  FAIL 자체 점검 명령 rc=$?: $(echo "$out" | grep -a FAIL | head -3 | tr '\n' ' ')"; FAILS=$((FAILS+1)); fi

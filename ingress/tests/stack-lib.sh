@@ -25,7 +25,7 @@ start_upstream() { # start_upstream <상류 파이썬 파일> <서비스 이름 
 }
 start_gateway() { # start_gateway <이름> [docker 인자...]: 공개 입구(internal 모드) 한 개. 호스트 포트는 Docker 가 배정한다
   local name=$1; shift
-  docker run -d --name "$name" --network $NET $(gateway_test_mounts "$PKI") --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 \
+  docker run -d --name "$name" --network $NET $(gateway_test_mounts "$PKI") --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 --tmpfs /etc/openit/root-out:uid=10001,gid=10001,mode=755 \
     -e "GATEWAY_HOSTS=localhost:8443" -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$@" "$ING" >/dev/null
 }
 wait_port() { # wait_port <컨테이너>: 호스트 포트를 stdout 으로(준비 확인: /healthz 가 응답할 때까지)

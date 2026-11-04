@@ -48,6 +48,19 @@ PY
   ) || exit 1
   EXPARGS=(--build-arg "EXPOSURE_JSON=$EXPJSON")
 fi
+# 잡 선언 라벨(io.openit.jobs, 계약 JobsDeclaration): 이 이미지가 내는 잡. 정본은 $CTX/jobs-$SERVICE.json 한 곳이고 deploy 가 라벨에서 compose 잡 정의를 만든다.
+if [ -f "$CTX/jobs-$SERVICE.json" ]; then
+  JOBSJSON=$("$PYTHON" - "$CTX/jobs-$SERVICE.json" <<'PY'
+import json, sys
+from boundary_contracts import validator
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+errs = list(validator("JobsDeclaration").iter_errors(d))
+if errs: sys.exit("build-image: 잡 선언이 계약 JobsDeclaration 을 어겼다: " + errs[0].message[:150])
+print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+PY
+  ) || exit 1
+  EXPARGS+=(--build-arg "JOBS_JSON=$JOBSJSON")
+fi
 "$DOCKER" build -q -t "$IMAGE_TAG" "${EXPARGS[@]}" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" -f "$CTX/$DOCKERFILE" "${CTXARGS[@]}" "$CTX" >&2
 "$DOCKER" image inspect "$IMAGE_TAG" | "$PYTHON" -c '
 import json, sys
