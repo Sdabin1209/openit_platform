@@ -24,6 +24,9 @@ VOLUME ["/home/step"]
 # 키 파일 그룹(StepCaEnv.STEP_CERT_GID 기본 10100): step 이 이 그룹의 구성원이라 root 없이 chgrp 할 수 있다. 다른 gid 는 deploy 의 group_add 로 보조 그룹을 받는다
 USER root
 RUN addgroup -g 10100 openit-certs && addgroup step openit-certs
+# 이름 있는 볼륨의 첫 마운트 복사(Docker 문서 "Populate a volume using a container"): 빈 볼륨을 이 경로에 붙이면 이미지의 디렉터리 소유자·모드가 복사된다. deploy 가 권한을 조정하지 않는다.
+# 인증서 폴더(STEP_CERTS_DIR 기본 /certs)는 step 소유·그룹 10100(STEP_CERT_GID 기본값), 토큰 폴더(/tokens)와 루트 출력 폴더(/out)는 step 소유. 모드 0755: 파일(키 0640)이 읽기를 막는다.
+RUN mkdir -p /certs /tokens /out && chown step:openit-certs /certs && chown step:step /tokens /out && chmod 0755 /certs /tokens /out
 USER step
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 CMD ["/usr/local/bin/openit-step-ca-entrypoint.sh", "health"]
 ENTRYPOINT ["/usr/local/bin/openit-step-ca-entrypoint.sh"]

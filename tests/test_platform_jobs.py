@@ -27,7 +27,7 @@ def stack():
     st = Stack("pjob")
     tags = {}
     try:
-        for v in list(IMAGES) + ["identity", "backup-store"]:
+        for v in list(IMAGES) + ["identity", "backup-store", "identity-db"]:
             tags[v] = f"platform-job-{v}:t-{st.tag}"; build(v, tags[v])
         labels = {v: json.loads(sh("docker", "image", "inspect", tags[v]).stdout)[0]["Config"]["Labels"] for v in tags}
         make_ca(st.d, "tls", "backup-store")
@@ -91,7 +91,6 @@ def test_backup_then_restore_round_trip_with_backup_job_result(stack, service):
     src, dst = stack.volume(f"src-{service}"), stack.volume(f"dst-{service}")
     own = f"{UID[service]}:{UID[service]}"; st_d = stack.d
     sh("docker", "run", "--rm", "-v", f"{st_d}/root_ca.crt:/ca.pem:ro", "-v", f"{src}:{mount}", "--user", "0", "--entrypoint", "sh", stack.tags[service], "-c", f"mkdir -p {mount}/certs && cp /ca.pem {mount}/certs/root_ca.crt && echo state > {mount}/state.txt && chown -R {own} {mount}")
-    sh("docker", "run", "--rm", "-v", f"{dst}:{mount}", "--user", "0", "--entrypoint", "sh", stack.tags[service], "-c", f"chown -R {own} {mount}")
     rc, res, run = run_job(stack, service, b, src)
     assert rc == 0 and res and res["status"] == "ok" and res["snapshot_id"] and res["bytes"] > 0, run.stdout[-400:] + run.stderr[-400:]
     assert not list(validator("BackupJobResult").iter_errors(res))
@@ -113,3 +112,50 @@ def test_mutation_wrong_credentials_fail_and_unreachable_store_is_retryable(stac
     assert rc == 75 and res["status"] == "failed" and res["error"]["retryable"] is True
     rc, res, _ = run_job(stack, "step-ca", "pki-restore", vol, url="https://backup-store:8000/platform-empty")   # 스냅숏이 없는 저장소에서 복구
     assert rc == 1 and res["status"] == "failed"
+
+
+def test_identity_db_backup_and_restore_jobs_round_trip_a_live_database(stack):
+    """identity-db 이미지의 backup/restore 잡(needs: postgres): 실행 중인 DB 를 pg_dump 로 꺼내 백업하고 pg_restore 로 되돌린다. 다른 DB 영역(survey-service)의 backup/restore 와 같은 모양."""
+    st, tag = stack, stack.tags["identity-db"]
+    jobs = jobs_of(st.labels["identity-db"], "identity-db")
+    assert set(jobs) == {"backup", "restore"} and all(j["needs"] == ["postgres"] and j["idempotent"] for j in jobs.values())
+    make_ca(st.d, "dbtls", "identity-db")   # 같은 루트가 서명한 DB 서버 인증서
+    certs = st.d / "dbcerts"; certs.mkdir(); certs.chmod(0o755)
+    for n in ("crt", "key"): (certs / f"tls.{n}").write_text((st.d / f"dbtls.{n}").read_text())
+    for f in certs.glob("*"): f.chmod(0o644)
+    (st.d / "dbpw").write_text("superuser-pw"); (st.d / "dbacc").mkdir(); (st.d / "dbacc/identity").write_text("identity-pw")
+    for f in (st.d / "dbpw", st.d / "dbacc/identity"): f.chmod(0o644)
+    (st.d / "dbacc").chmod(0o755)
+    (st.d / "sec/dburl").write_text("postgresql://identity:identity-pw@identity-db:5432/identity?sslmode=verify-full"); (st.d / "sec/dburl").chmod(0o644)
+    (st.d / "sec/baddburl").write_text("postgresql://identity:zz-dbsekret-7@identity-db:5432/identity?sslmode=verify-full"); (st.d / "sec/baddburl").chmod(0o644)
+    vol = st.volume("iddb")
+    db = st.run("identity-db", "--network-alias", "identity-db", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--tmpfs", "/tmp", "--tmpfs", "/var/run/postgresql:uid=999,gid=999",
+                "-e", "POSTGRES_PASSWORD_FILE=/run/secrets/pw", "-v", f"{st.d}/dbpw:/run/secrets/pw:ro", "-v", f"{st.d}/dbacc:/run/secrets/db:ro", "-v", f"{certs}:/certs:ro", "-v", f"{vol}:/var/lib/postgresql/data", tag)
+    import time
+    for _ in range(60):   # 준비 확인: 건강 확인 자체가 신호다
+        if sh("docker", "inspect", "-f", "{{.State.Health.Status}}", db, check=False).stdout.strip() == "healthy": break
+        time.sleep(3)
+    else:
+        raise AssertionError(st.logs(db)[-600:])
+    def psql(sql): return sh("docker", "exec", db, "psql", "-X", "-q", "-U", "identity", "-d", "identity", "-tAc", sql).stdout.strip()   # 소유 계정으로(덤프·복구가 읽고 쓰는 계정)
+    psql("create table users_t(n text); insert into users_t values ('alice'),('bob')")
+    argv_b, argv_r = jobs["backup"]["argv"], jobs["restore"]["argv"]
+    def job(argv, dburl="dburl", url="https://backup-store:8000/platform"):
+        r = sh("docker", "run", "--rm", "--network", st.net, *HARD, "-v", f"{st.d}/root_ca.crt:/ca.pem:ro", "-v", f"{st.d}/sec:/sec:ro",
+               "-e", f"OPENIT_BACKUP_URL={url}", "-e", "OPENIT_BACKUP_CREDENTIALS_FILE=/sec/creds", "-e", "OPENIT_BACKUP_REPO_PASSWORD_FILE=/sec/repopw", "-e", "IDENTITY_ROOT_CA=/ca.pem", "-e", f"IDENTITY_DB_URL_FILE=/sec/{dburl}",
+               "--entrypoint", argv[0], tag, *argv[1:], check=False, timeout=300)
+        last = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+        return r.returncode, json.loads(last) if last.startswith("{") else None, r
+    rc, res, run = job(argv_b)
+    assert rc == 0 and res["status"] == "ok" and res["snapshot_id"] and not list(validator("BackupJobResult").iter_errors(res)), run.stdout[-300:] + run.stderr[-300:]
+    psql("delete from users_t where n='alice'; insert into users_t values ('mallory')")   # 백업 뒤의 변경
+    rc, res, run = job(argv_r)
+    assert rc == 0 and res["status"] == "ok" and not list(validator("BackupJobResult").iter_errors(res)), run.stdout[-300:] + run.stderr[-300:]
+    assert psql("select string_agg(n, ',' order by n) from users_t") == "alice,bob"   # 백업 시점으로 돌아갔다
+    rc, res, run = job(argv_b)   # 멱등: 다시 돌려도 ok
+    assert rc == 0 and res["status"] == "ok"
+    # 변이: DB 암호가 틀리면 실패(종료 1)하고 틀린 비밀이 출력에 없다. 저장소가 없으면 75
+    rc, res, run = job(argv_b, dburl="baddburl")
+    assert rc == 1 and res["status"] == "failed" and "zz-dbsekret-7" not in run.stdout + run.stderr
+    rc, res, _ = job(argv_b, url="https://no-such-store:8000/platform")
+    assert rc == 75 and res["error"]["retryable"] is True

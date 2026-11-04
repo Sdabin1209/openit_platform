@@ -1,0 +1,4 @@
+{"jobs": [
+ {"name": "backup", "argv": ["/usr/local/bin/platform-backup-job", "backup", "identity-db", "/tmp/identity-db-dump", "@IDENTITY_ROOT_CA", "postgres", "@IDENTITY_DB_URL_FILE"], "idempotent": true, "secret_files": ["IDENTITY_DB_URL_FILE", "OPENIT_BACKUP_CREDENTIALS_FILE", "OPENIT_BACKUP_REPO_PASSWORD_FILE"], "needs": ["postgres"], "env": ["OPENIT_BACKUP_URL", "IDENTITY_ROOT_CA"], "timeout_seconds": 1800},
+ {"name": "restore", "argv": ["/usr/local/bin/platform-backup-job", "restore", "identity-db", "/tmp/identity-db-dump", "@IDENTITY_ROOT_CA", "postgres", "@IDENTITY_DB_URL_FILE"], "idempotent": true, "secret_files": ["IDENTITY_DB_URL_FILE", "OPENIT_BACKUP_CREDENTIALS_FILE", "OPENIT_BACKUP_REPO_PASSWORD_FILE"], "needs": ["postgres"], "env": ["OPENIT_BACKUP_URL", "IDENTITY_ROOT_CA"], "timeout_seconds": 1800}
+]}

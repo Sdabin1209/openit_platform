@@ -18,8 +18,7 @@ class W:
         build("step-ca", IMAGE)
         (s.d / "pw").write_text("pw-step-ca-test-" + s.tag); (s.d / "pw").chmod(0o644)
         self.ca, self.root, self.tok, self.certs = (s.volume(v) for v in ("ca", "root", "tok", "certs"))
-        for v in (self.ca, self.root, self.tok, self.certs):   # 새 볼륨은 root 소유: step 사용자(1000)가 쓰게 소유자만 바꾼다
-            sh("docker", "run", "--rm", "-v", f"{v}:/v", "--user", "0", "--entrypoint", "chown", IMAGE, "1000:1000", "/v")
+        # 볼륨 소유를 조정하지 않는다: 빈 이름 있는 볼륨은 이미지의 마운트 경로 디렉터리 소유자·모드를 첫 마운트에 복사한다(Docker 표준)
         self.c = s.run("ca", "--network-alias", "step-ca", *HARD, "-v", f"{self.ca}:/home/step", "-v", f"{s.d}/pw:/run/secrets/step-ca-password:ro", IMAGE)
         self.wait_healthy(self.c)
         # 시험 전용: 최소 수명을 낮춘다(상태 볼륨의 설정 편집, 이미지·제품 구성은 그대로)
