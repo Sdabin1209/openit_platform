@@ -12,6 +12,9 @@ boundary-contracts v3.4.11(`requirements.txt` 고정): Exposure, BuildImageReque
 마운트 규칙(스키마 변수가 가리키는 경로 말고): 영역 게이트웨이 `/tmp` tmpfs; 공개 입구 `/tmp`,`/data`,`/config` tmpfs; identity `/tmp`,`/opt/keycloak/data/tmp`,`/opt/keycloak/data/import` tmpfs; identity-proxy 없음; identity-db `/var/lib/postgresql/data`(rw), `/tmp`·`/var/run/postgresql` tmpfs; monitoring prometheus `/prometheus`·alertmanager `/alertmanager`(rw). 읽기 전용 루트와 비루트로 돈다. 변형별 추가 설명: `docs/COMPONENTS.md`.
 서비스 이름(네트워크 별칭): 사람 인증 경로는 공개 입구가 `identity`(Keycloak), `identity-proxy`(인증 확인)로 부른다(내장 선언 `ingress/exposures-builtin/`).
 
+## 설치처는 호스트 이름으로 접속한다 (계약 3.4.14)
+기본 기기 인증(mTLS)을 켜면 Caddy 는 Host 와 TLS SNI 가 같기를 요구하고(RFC 9110 15.5.20 421), SNI 에는 IP 리터럴을 쓸 수 없다(RFC 6066 3절). 그래서 `GATEWAY_HOSTS` 는 DNS 이름만 받고(IP 리터럴이면 envcheck 가 종료 64), 키오스크·직원 PC·점검 도구는 모두 그 이름으로 접속한다(IP 로 직접 붙으면 421). Host 를 SNI 와 다르게 위조한 요청은 CSRF 규칙에 닿기 전에 TLS 단에서 421 로 막힌다(시험: `test-gateway-auth.sh`). SNI 검사를 끄지 않는다(보안 약화).
+
 ## 공개 입구 자체 점검 명령 (`selfcheck-unauth`)
 공개 입구 이미지 안의 명령. 인증 없는(쿠키·토큰 없음) 요청에 대한 기대 응답의 정본이다(손 표 없음): 마운트된 영역 Exposure 선언(+ 내장 선언)에서 기대 행을 만든다.
 - 실행(배포는 띄운 스택에 실행만 한다): `docker run --rm --network <스택 네트워크> -v <선언 폴더>:/etc/openit/exposures:ro --entrypoint selfcheck-unauth <public-ingress 이미지> <https://주소:포트> --cacert 파일 [--exposures 폴더...]`

@@ -3,9 +3,9 @@ import socket, ssl, sys
 port, kind = int(sys.argv[1]), sys.argv[2]
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
 ctx.set_alpn_protocols(["http/1.1"])
-s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=10))
+s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=10), server_hostname="localhost")   # SNI = Host (IP 리터럴은 SNI 가 될 수 없다)
 big = b"a" * 1200000
-req = (b"GET /healthz?" + big + b" HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n") if kind == "line" else (b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Big: " + big + b"\r\n\r\n")
+req = (b"GET /healthz?" + big + b" HTTP/1.1\r\nHost: localhost\r\n\r\n") if kind == "line" else (b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nX-Big: " + big + b"\r\n\r\n")
 try: s.sendall(req)
 except OSError: pass
 d = b""

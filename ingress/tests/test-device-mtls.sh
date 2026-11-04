@@ -36,7 +36,7 @@ assert t.index("handle @device_cert") < t.index("handle @device_ok"), "인증서
 PY
 DEVICE_PKI_DIR="$T/pki2" bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1; DEVICE_PKI_DIR="$T/pki2" bash "$ROOT/ingress/scripts/device-pki.sh" issue rogue-1 >/dev/null 2>&1   # 신뢰하지 않는 다른 CA
 if [ "${MTLS_MUTATE:-0}" = 1 ]; then DEVCA_MOUNT=$T/pki2/ca.crt; fi   # 변이: 신뢰하지 않는 다른 CA 를 기기 CA 로 준다
-docker run --rm -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" $(gateway_test_mounts "$PKI") --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443,127.0.0.1:8443" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" "$ING" validate >/dev/null 2>&1 && pass "설정 검증 통과(기기 CA: $([ "${MTLS_MUTATE:-0}" = 1 ] && echo 변이=다른 CA || echo 신뢰 CA))" || fail "설정 검증"
+docker run --rm -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" $(gateway_test_mounts "$PKI") --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" "$ING" validate >/dev/null 2>&1 && pass "설정 검증 통과(기기 CA: $([ "${MTLS_MUTATE:-0}" = 1 ] && echo 변이=다른 CA || echo 신뢰 CA))" || fail "설정 검증"
 start_upstream "$ROOT/ingress/tests/gateway-oidc/echo-upstream.py" survey-service
 start_gateway $CN
 P=$(wait_port $CN) || { # 클라이언트 인증을 쓰는 사이트는 Host 와 SNI 가 같아야 한다(421): 이름으로 붙는다

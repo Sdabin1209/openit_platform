@@ -24,7 +24,8 @@ DEVTOK=$(cat "$T/tokens/devices/auth-1")
 start_upstream "$ROOT/ingress/tests/gateway-oidc/fault-upstream.py" survey-service
 if [ -n "$CF_FILE" ]; then start_gateway $CN -v "$CF_FILE:/etc/caddy/Caddyfile:ro"; else start_gateway $CN; fi
 CP=$(wait_port $CN) || { echo "게이트웨이가 뜨지 않았다"; docker logs $CN 2>&1 | tail -n 5; exit 1; }
-URL="https://127.0.0.1:$CP/v1/sessions"
+use_name_resolution $CP
+URL="$GW_URL/v1/sessions"
 # req <fault> [추가 curl 인자...]: 상태 코드는 stdout, 머리글은 $T/h, 본문은 $T/b
 req() { local f=$1; shift; curl -sk -m 100 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H "Authorization: Bearer $DEVTOK" -H "X-Fault: $f" -H 'Content-Type: application/json' -d '{"k":1}' "$@" "$URL"; }
 hdr() { grep -i "^$1:" "$T/h" | head -n 1 | sed 's/^[^:]*: *//' | tr -d '\r'; }

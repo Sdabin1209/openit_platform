@@ -17,7 +17,7 @@ cleanup() {
 trap cleanup EXIT
 PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
 export SECRETS_GID
-export PUBLIC_PORT=$PORT PUBLIC_URL=https://127.0.0.1:$PORT GATEWAY_HOSTS="127.0.0.1:8443, localhost:8443"
+export PUBLIC_PORT=$PORT PUBLIC_URL=https://localhost:$PORT GATEWAY_HOSTS="localhost:8443"
 export BUILTIN_DIR=$ROOT/ingress/exposures-builtin EXPOSURES_DIR=$ROOT/ingress/tests/exposures
 GW_IMG=platform-area-gateway:idp-$ID; ING_IMG=platform-ingress:idp-$ID; IDP_IMG=platform-identity:idp-$ID; PRX_IMG=platform-identity-proxy:idp-$ID; DB_IMG=platform-identity-db:idp-$ID
 export AREA_GATEWAY_IMAGE=$GW_IMG INGRESS_IMAGE=$ING_IMG IDENTITY_IMAGE=$IDP_IMG IDENTITY_PROXY_IMAGE=$PRX_IMG IDENTITY_DB_IMAGE=$DB_IMG
@@ -35,7 +35,7 @@ for v in "|$GW_IMG" "public-ingress|$ING_IMG" "identity|$IDP_IMG" "identity-prox
 done
 echo "== 기동 (identity-db -> identity -> identity-proxy -> 공개 입구)"
 dcp up -d --wait --wait-timeout 300 identity identity-gw >"$W/up1.log" 2>&1; ok "identity(Keycloak) healthy (realm openit 가져오기 포함)" test "$(dcp ps -q identity | xargs -r $DOCKER inspect --format '{{.State.Health.Status}}')" = healthy
-dcp up -d --wait --wait-timeout 120 identity-proxy identity-proxy-gw gateway >"$W/up2.log" 2>&1; ok "공개 입구가 응답한다(/healthz)" bash -c "for i in \$(seq 1 30); do curl -sk -m 3 -o /dev/null -w '%{http_code}' https://127.0.0.1:$PORT/healthz | grep -q 200 && exit 0; sleep 1; done; exit 1"   # 준비 확인: 응답이 올 때까지(재시도 덧붙임이 아니라 기동 대기)
+dcp up -d --wait --wait-timeout 120 identity-proxy identity-proxy-gw gateway >"$W/up2.log" 2>&1; ok "공개 입구가 응답한다(/healthz)" bash -c "for i in \$(seq 1 30); do curl -sk -m 3 --resolve localhost:$PORT:127.0.0.1 -o /dev/null -w '%{http_code}' https://localhost:$PORT/healthz | grep -q 200 && exit 0; sleep 1; done; exit 1"   # 준비 확인: 응답이 올 때까지(재시도 덧붙임이 아니라 기동 대기)
 KCC=$(dcp ps -q identity)
 ok "identity 프로세스 환경에 비밀 값이 없다(파일만, D84)" bash -c "! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $IDP_SECRETS/db-identity)\" && ! docker exec $KCC cat /proc/1/environ | tr '\0' '\n' | grep -qF \"\$(cat $IDP_SECRETS/identity-client-secret)\""
 ok "시험 사용자를 Keycloak 에 만든다(운영 입구: kcadm)" bash identity/scripts/idp-test-users.sh "$KCC"
@@ -45,7 +45,7 @@ import json, os, sys, subprocess, urllib.parse
 sys.path.insert(0, "identity/tests")
 from idp_client import Client
 W, PORT = os.environ["W"], os.environ["PORT"]; S = os.environ["SECRETS_DIR"]
-base = f"https://127.0.0.1:{PORT}"
+base = f"https://localhost:{PORT}"
 c = Client(base, os.environ["PKI_DIR"] + "/root_ca.crt")
 fails = 0
 def chk(name, cond, detail=""):

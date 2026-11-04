@@ -26,8 +26,11 @@ start_upstream() { # start_upstream <상류 파이썬 파일> <서비스 이름 
 start_gateway() { # start_gateway <이름> [docker 인자...]: 공개 입구(internal 모드) 한 개. 호스트 포트는 Docker 가 배정한다
   local name=$1; shift
   docker run -d --name "$name" --network $NET $(gateway_test_mounts "$PKI") --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 \
-    -e "GATEWAY_HOSTS=localhost:8443,127.0.0.1:8443" -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$@" "$ING" >/dev/null
+    -e "GATEWAY_HOSTS=localhost:8443" -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$@" "$ING" >/dev/null
 }
 wait_port() { # wait_port <컨테이너>: 호스트 포트를 stdout 으로(준비 확인: /healthz 가 응답할 때까지)
-  local p="" i; for i in $(seq 1 60); do p=$(docker port "$1" 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$p" ] && curl -sk -o /dev/null -m 2 "https://127.0.0.1:$p/healthz" && { echo "$p"; return 0; }; sleep 0.5; done; return 1
+  local p="" i; for i in $(seq 1 60); do p=$(docker port "$1" 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$p" ] && curl -sk -o /dev/null -m 2 --resolve "localhost:$p:127.0.0.1" "https://localhost:$p/healthz" && { echo "$p"; return 0; }; sleep 0.5; done; return 1
+}
+use_name_resolution() { # use_name_resolution <호스트 포트>: 모든 curl 이 이름(localhost)으로 붙게 한다. 기본 기기 인증(mTLS)에서는 Host 와 TLS SNI 가 같아야 하고(RFC 9110 421) SNI 에는 IP 리터럴을 쓸 수 없다(RFC 6066 3절)
+  mkdir -p "$T/curlhome"; printf 'resolve = "localhost:%s:127.0.0.1"\n' "$1" > "$T/curlhome/.curlrc"; export CURL_HOME=$T/curlhome; GW_URL=https://localhost:$1
 }

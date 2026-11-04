@@ -16,7 +16,7 @@ cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker net
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | grep -v "\"level\":\"\(info\|warn\)\"" | tail -3 | tr "\n" " " | cut -c1-300)"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 EXP="$ROOT/ingress/tests/exposures"
-ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443,127.0.0.1:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
+ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
 val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) "$ING" validate; }   # 이미지의 validate 부명령: 진입점과 같은 준비(환경 검증·경로 표·기기 조각) 뒤 caddy validate
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 hn() { docker run --rm --entrypoint /opt/gw/bin/python "$ING" /usr/local/bin/gen-host-names.py "$1"; }
@@ -25,6 +25,7 @@ ok "GATEWAY_HOSTS 의 쉼표 뒤 공백이 있든 없든 Caddy 사이트 목록�
 ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 뗀다, 중복 제거)" bash -c '[ "$(hn "kiosk.example.internal:8443, 10.0.0.5:443, 10.0.0.5:8443")" = "\"kiosk.example.internal\", \"10.0.0.5\"" ]'
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c '! hn "*.x:8443" >/dev/null 2>&1 && ! hn "a\"b:8443" >/dev/null 2>&1'
 ok "계약 PublicIngressEnv 에 없는 INGRESS_ 이름(예: 옛 INGRESS_BUILTIN)은 시작 거부(종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e INGRESS_BUILTIN=x "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
+ok "GATEWAY_HOSTS 에 IP 리터럴이 있으면 시작 거부(종료 64, 계약 3.4.14: DNS 이름만 — SNI 에는 IP 를 쓸 수 없다, RFC 6066 3절)" bash -c 'docker run --rm -e GATEWAY_HOSTS="localhost:8443,127.0.0.1:8443" "$ING" validate >/dev/null 2>&1; [ $? = 64 ] && docker run --rm -e GATEWAY_HOSTS=10.0.0.5 "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "GATEWAY_HOSTS 가 없으면 시작 거부(필수, 종료 64)" bash -c 'docker run --rm "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "acme 모드에서 GATEWAY_ACME_EMAIL 이 없으면 시작 거부(조건부 필수, 종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e GATEWAY_TLS_MODE=acme "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1   # 기기 CA(필수 입력 INGRESS_DEVICE_CA_FILE)
@@ -51,8 +52,9 @@ printf '{\n\tadmin off\n\tskip_install_trust\n\tauto_https off\n}\nhttps://:443 
 for pair in "$CU:8080" "$CF:4180"; do docker run -d --name "${pair%%:*}-tls" --network "container:${pair%%:*}" -e UP="${pair##*:}" -v "$PKI/front.caddy:/etc/caddy/Caddyfile:ro" -v "$PKI:/pki:ro" "$GW" caddy run --config /etc/caddy/Caddyfile >/dev/null; done
 # 교차 사이트 요청 방어(점검 M2)의 실제 동작: gateway 를 띄우고 헤더 조합별 응답을 본다. 인증이 없으면 401 이므로 "403 + 교차 출처 문구"는 이 규칙만의 응답이다. (Docker·Caddy 필요)
 docker run -d --name $CN --network $NET --network-alias gateway $(gateway_test_mounts "$PKI") $(ingmount) -p 127.0.0.1::8443 "$ING" >/dev/null
-CP=""; for i in $(seq 1 30); do CP=$(docker port $CN 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$CP" ] && curl -sk -o /dev/null -m 2 "https://127.0.0.1:$CP/healthz" && break; sleep 0.5; done   # port-wait: 게이트웨이 포트가 열릴 때까지만 기다린다
-cs() { curl -sk -m 5 -o "$T/cs.out" -w '%{http_code}' -X "$1" "${@:3}" "https://127.0.0.1:$CP$2"; }
+CP=""; for i in $(seq 1 30); do CP=$(docker port $CN 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$CP" ] && curl -sk -o /dev/null -m 2 --resolve "localhost:$CP:127.0.0.1" "https://localhost:$CP/healthz" && break; sleep 0.5; done   # port-wait: 게이트웨이 포트가 열릴 때까지만 기다린다
+use_name_resolution $CP   # 이후 모든 curl 은 이름(localhost)으로 붙는다
+cs() { curl -sk -m 5 -o "$T/cs.out" -w '%{http_code}' -X "$1" "${@:3}" "https://localhost:$CP$2"; }
 csrf_case() { # csrf_case <설명> <기대 코드> <교차 출처 문구 포함 여부> <메서드> <경로> [curl 인자...]
   local name=$1 want=$2 body=$3; shift 3; local code; code=$(cs "$@")
   local has=no; grep -q "cross-origin" "$T/cs.out" && has=yes
@@ -63,24 +65,24 @@ csrf_case "다른 Origin 의 POST 는 403" 403 yes POST /v1/approvals -H "Origin
 csrf_case "다른 Origin 의 DELETE 도 403" 403 yes DELETE /v1/anything -H "Origin: https://evil.example"
 csrf_case "Sec-Fetch-Site: same-origin 은 이 규칙이 막지 않는다(인증이 없어 401)" 401 no POST /v1/activate -H "Sec-Fetch-Site: same-origin"
 csrf_case "Sec-Fetch-Site: none(주소창 직접 입력 등)은 막지 않는다" 401 no POST /v1/activate -H "Sec-Fetch-Site: none"
-csrf_case "같은 출처 Origin 은 막지 않는다" 401 no POST /v1/activate -H "Origin: https://127.0.0.1:$CP"
+csrf_case "같은 출처 Origin 은 막지 않는다" 401 no POST /v1/activate -H "Origin: https://localhost:$CP"
 csrf_case "헤더가 없는 요청(curl·서비스 간 호출·E2E)은 막지 않는다" 401 no POST /v1/activate
 csrf_case "GET 은 교차 출처여도 이 규칙의 대상이 아니다" 200 no GET /healthz -H "Sec-Fetch-Site: cross-site"
 # 기본 443(Host 에 포트 없음)과 명시 포트에서 브라우저의 Origin 이 규칙과 맞는지(점검 L6): 같은 출처면 막지 않고(인증 없어 401), 다른 호스트의 Origin 은 403
-csrf_case "Host 에 포트가 없고 Origin 도 포트가 없으면(기본 443 형태: Host 127.0.0.1) 같은 출처" 401 no POST /v1/activate -H "Host: 127.0.0.1" -H "Origin: https://127.0.0.1"
-csrf_case "Host 에 :8443 이 있고 Origin 도 :8443 이면 같은 출처" 401 no POST /v1/activate -H "Host: 127.0.0.1:8443" -H "Origin: https://127.0.0.1:8443"
-csrf_case "Host 에 포트가 없는데 Origin 에 포트가 붙으면 다른 출처로 본다" 403 yes POST /v1/activate -H "Host: 127.0.0.1" -H "Origin: https://127.0.0.1:8443"
-csrf_case "http:// 출처의 Origin 은 다른 출처" 403 yes POST /v1/activate -H "Host: 127.0.0.1" -H "Origin: http://127.0.0.1"
-# L20(ADR 0056): 허용 출처는 GATEWAY_HOSTS(여기서는 기본 localhost, 127.0.0.1)에서 만든 호스트 이름 목록이다. 목록에 없는 호스트 이름의 Host 는 Origin 이 Host 와 같아도 403
-# Caddy 는 사이트 이름에 없는 Host 를 핸들러에 보내지 않는다(빈 200). 그래서 이 이름들로는 보호 경로에 아예 닿지 못한다: 응답 본문이 비어 있어야 하고 401 도 상류 응답도 아니다
-code=$(curl -sk -m 5 -X POST -o "$T/ev.out" -w '%{http_code}' -H "Host: evil.example:8443" -H "Origin: https://evil.example:8443" "https://127.0.0.1:$CP/v1/activate"); AN=$((${AN:-0}+1))
-if [ ! -s "$T/ev.out" ] && [ "$code" != 401 ] && [ "$code" != 503 ]; then echo "  PASS Host 가 GATEWAY_HOSTS 에 없는 이름이면 Origin 이 Host 와 같아도 핸들러에 닿지 않는다(빈 응답 $code)"; else echo "  FAIL 목록에 없는 Host 가 핸들러에 닿았다 ($code, 본문 $(wc -c < "$T/ev.out") 바이트)"; FAILS=$((FAILS+1)); fi
+csrf_case "Host 에 포트가 없고 Origin 도 포트가 없으면(기본 443 형태: Host localhost) 같은 출처" 401 no POST /v1/activate -H "Host: localhost" -H "Origin: https://localhost"
+csrf_case "Host 에 :8443 이 있고 Origin 도 :8443 이면 같은 출처" 401 no POST /v1/activate -H "Host: localhost:8443" -H "Origin: https://localhost:8443"
+csrf_case "Host 에 포트가 없는데 Origin 에 포트가 붙으면 다른 출처로 본다" 403 yes POST /v1/activate -H "Host: localhost" -H "Origin: https://localhost:8443"
+csrf_case "http:// 출처의 Origin 은 다른 출처" 403 yes POST /v1/activate -H "Host: localhost" -H "Origin: http://localhost"
+# L20(ADR 0056): 허용 출처는 GATEWAY_HOSTS(여기서는 localhost)에서 만든 호스트 이름 목록이다. 목록에 없는 호스트 이름의 Host 는 Origin 이 Host 와 같아도 403
+# 기본 기기 인증(mTLS)을 켜면 Caddy 는 Host 와 TLS SNI 가 같기를 요구한다: SNI(localhost)와 다른 Host 로 위조한 요청은 핸들러(CSRF 규칙)에 닿기 전에 TLS 단에서 421 로 막힌다(RFC 9110 15.5.20). 응답 본문 없음
+code=$(curl -sk -m 5 -X POST -o "$T/ev.out" -w '%{http_code}' -H "Host: evil.example:8443" -H "Origin: https://evil.example:8443" "https://localhost:$CP/v1/activate"); AN=$((${AN:-0}+1))
+if [ "$code" = 421 ] && [ ! -s "$T/ev.out" ]; then echo "  PASS Host 를 SNI 와 다르게 위조하면 핸들러에 닿기 전에 421 로 막힌다(Origin 이 Host 와 같아도)"; else echo "  FAIL Host 위조 -> $code '$(head -c 60 "$T/ev.out")' (기대 421, 빈 본문)"; FAILS=$((FAILS+1)); fi
 csrf_case "목록의 다른 이름(localhost)도 같은 출처면 막지 않는다" 401 no POST /v1/activate -H "Host: localhost:$CP" -H "Origin: https://localhost:$CP"
-csrf_case "같은 호스트의 다른 포트 Origin 은 다른 출처라 403" 403 yes POST /v1/activate -H "Origin: https://127.0.0.1:$((CP+1))"
-csrf_case "Origin 대소문자·접두 변형(https://127.0.0.1.evil.example)은 403" 403 yes POST /v1/activate -H "Origin: https://127.0.0.1:$CP.evil.example"
+csrf_case "같은 호스트의 다른 포트 Origin 은 다른 출처라 403" 403 yes POST /v1/activate -H "Origin: https://localhost:$((CP+1))"
+csrf_case "Origin 대소문자·접두 변형(https://localhost.evil.example)은 403" 403 yes POST /v1/activate -H "Origin: https://localhost:$CP.evil.example"
 # 경로 우회·청크 본문 회귀: 다른 Origin 의 상태 변경 요청은 경로 표기를 어떻게 바꿔도 403 이다(CSRF 규칙이 경로 매칭보다 먼저다). --path-as-is 로 요청 바이트 그대로
 csrf_path() { # csrf_path <설명> <경로> [curl 인자...]
-  local name=$1 path=$2; shift 2; local code; code=$(curl -sk -m 5 --path-as-is -X POST -o "$T/cp.out" -w '%{http_code}' -H "Origin: https://evil.example" "$@" "https://127.0.0.1:$CP$path")
+  local name=$1 path=$2; shift 2; local code; code=$(curl -sk -m 5 --path-as-is -X POST -o "$T/cp.out" -w '%{http_code}' -H "Origin: https://evil.example" "$@" "https://localhost:$CP$path")
   if [ "$code" = 403 ] && grep -q "cross-origin" "$T/cp.out"; then echo "  PASS CSRF 경로 우회: $name -> 403"; else echo "  FAIL CSRF 경로 우회: $name -> $code (다른 Origin 이 403 이 아니다)"; FAILS=$((FAILS+1)); fi; }
 csrf_path "//v1/activate" //v1/activate
 csrf_path "/v1//activate" /v1//activate
@@ -91,7 +93,7 @@ csrf_path "청크 본문(Transfer-Encoding: chunked)" /v1/activate -H "Transfer-
 csrf_path "청크 본문 + 경로 //" //v1/sessions -H "Transfer-Encoding: chunked" -d '{}'
 # 우회 시도 회귀(요청 바이트 그대로 보내려고 --path-as-is): 인증 없이 보호 경로에 닿으면 안 된다. 상류가 없는 시험이므로 401/403/404 가 아니라 502/503/504(상류로 넘어감)나 200 이면 **우회**다
 byp() { # byp <설명> <허용 코드들> <경로> [curl 인자...]
-  local name=$1 allow=$2 path=$3; shift 3; local code; code=$(curl -sk -m 5 --path-as-is -o "$T/by.out" -w '%{http_code}' "$@" "https://127.0.0.1:$CP$path")
+  local name=$1 allow=$2 path=$3; shift 3; local code; code=$(curl -sk -m 5 --path-as-is -o "$T/by.out" -w '%{http_code}' "$@" "https://localhost:$CP$path")
   case " $allow " in *" $code "*) echo "  PASS 우회 시도: $name -> $code";; *) echo "  FAIL 우회 시도: $name -> $code (허용 $allow; 상류로 넘어갔거나 인증 없이 통과했다 = 우회)"; FAILS=$((FAILS+1));; esac; }
 byp "/staff/ 정상 경로는 로그인으로 보낸다(302, 브라우저 Accept)" "302" /staff/ -H "Accept: text/html"
 byp "대소문자 /Staff/" "302 401 403 404" /Staff/
@@ -130,7 +132,7 @@ AN=0
 call() { # call <계정|-|bearer:<토큰>|cookie:<값>> <메서드> <경로> [curl 인자...] -> 코드를 표준 출력, 응답 머리글 $T/ah.out, 본문 $T/ab.out
   local who=$1 m=$2 path=$3 auth=(); shift 3
   case "$who" in -) ;; bearer:*) auth=(-H "Authorization: Bearer ${who#bearer:}");; cookie:*) auth=(-H "Cookie: fakeauth=${who#cookie:}");; *) auth=(-H "Cookie: fakeauth=$who");; esac
-  curl -sk -m 5 -D "$T/ah.out" -o "$T/ab.out" -w '%{http_code}' -X "$m" "${auth[@]}" "$@" "https://127.0.0.1:$CP$path"; }
+  curl -sk -m 5 -D "$T/ah.out" -o "$T/ab.out" -w '%{http_code}' -X "$m" "${auth[@]}" "$@" "https://localhost:$CP$path"; }
 wa() { grep -i '^www-authenticate:' "$T/ah.out" | tr -d '\r' | head -1; }
 loc() { grep -i '^location:' "$T/ah.out" | tr -d '\r' | head -1; }
 chk401() { # chk401 <설명> <Bearer> <who> <메서드> <경로>: 401 + WWW-Authenticate: Bearer
@@ -205,17 +207,17 @@ chkhdr "위조한 X-Auth-Request-* 는 믿지 않는다(인증 결과로 덮어�
 chk401 "위조한 X-Auth-Request-* 만으로는 인증되지 않는다" Bearer - GET /v1/staff/alerts -H "X-Auth-Request-User: staff-e2e" -H "X-Auth-Request-Preferred-Username: staff-e2e" -H "X-Auth-Request-Groups: staff"
 chkhdr "화면 경로(/admin/)에는 신원 머리글을 붙이지 않는다(정적 화면)" "" "" staff-e2e GET /admin/
 # 게이트웨이 자신의 /healthz·/readyz: 상태 코드와 본문 HealthStatus(status), Content-Type json (R2.3·R5.1)
-for pth in /healthz /readyz; do AN=$((AN+1)); hb=$(curl -sk -m 10 -D "$T/hh" "https://127.0.0.1:$CP$pth"); hc=$(sed -n '1s/[^ ]* \([0-9]*\).*/\1/p' "$T/hh")
+for pth in /healthz /readyz; do AN=$((AN+1)); hb=$(curl -sk -m 10 -D "$T/hh" "https://localhost:$CP$pth"); hc=$(sed -n '1s/[^ ]* \([0-9]*\).*/\1/p' "$T/hh")
   want=ok; [ "$pth" = /readyz ] && want=ready   # HealthStatus(status): 살아 있음 ok, 준비됨 ready (R5.1)
   if [ "$hc" = 200 ] && echo "$hb" | grep -Eq "^\{\"status\": ?\"$want\"\}$" && grep -qi '^content-type: application/json' "$T/hh"; then echo "  PASS $pth 는 200 + {\"status\":\"$want\"} + application/json"; else echo "  FAIL $pth: $hc '$hb'"; FAILS=$((FAILS+1)); fi; done
 # 본문 상한(8MiB)을 Content-Length 로 넘는 요청은 상류로 보내기 전에 413 이다(상류가 TLS 사이드카일 때 본문 읽기 오류가 503 으로 올라왔다, 4차 E2E 5a)
-AN=$((AN+1)); big=$(head -c 9437184 /dev/zero | curl -sk -o /dev/null -m 30 -w '%{http_code}' -X POST --data-binary @- -H 'Content-Type: text/plain' "https://127.0.0.1:$CP/v1/materials?question_set_id=x" 2>/dev/null || true)
+AN=$((AN+1)); big=$(head -c 9437184 /dev/zero | curl -sk -o /dev/null -m 30 -w '%{http_code}' -X POST --data-binary @- -H 'Content-Type: text/plain' "https://localhost:$CP/v1/materials?question_set_id=x" 2>/dev/null || true)
 if [ "$big" = 413 ]; then echo "  PASS 8MiB 초과 본문은 413"; else echo "  FAIL 8MiB 초과 본문이 $big (기대 413)"; FAILS=$((FAILS+1)); fi
 # 이미지 안 자체 점검 명령(selfcheck-unauth): 선언에서 기대 행을 만들어 실제 공개 입구에 인증 없는 요청을 보낸다(정본은 이 이미지 한 곳, deploy 는 이 명령을 실행만 한다). rc=0 일치
 mkdir -p "$T/out"; chmod 777 "$T/out"
 AN=$((AN+2)); if docker run --rm --volumes-from $CN -v "$T/out:/out" --user 10001:10001 "$ING" export-root /out >/dev/null 2>&1 && grep -q "BEGIN CERTIFICATE" "$T/out/root_ca.crt"; then echo "  PASS export-root: 공개 입구의 사설 CA 루트를 내보낸다(감시·직원 PC 가 믿는 길)"; else echo "  FAIL export-root 가 루트를 내보내지 못했다"; FAILS=$((FAILS+1)); fi
 cp "$T/out/root_ca.crt" "$T/gw-root.crt"   # 점검은 인증서 검증을 끄지 않고 이 루트로 검증한다
-if openssl s_client -connect 127.0.0.1:$CP -servername 127.0.0.1 -CAfile "$T/gw-root.crt" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then echo "  PASS 내보낸 루트로 공개 입구 인증서가 검증된다"; else echo "  FAIL 내보낸 루트로 공개 입구 인증서가 검증되지 않는다"; FAILS=$((FAILS+1)); fi
+if openssl s_client -connect 127.0.0.1:$CP -servername localhost -CAfile "$T/gw-root.crt" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then echo "  PASS 내보낸 루트로 공개 입구 인증서가 검증된다"; else echo "  FAIL 내보낸 루트로 공개 입구 인증서가 검증되지 않는다"; FAILS=$((FAILS+1)); fi
 selfcheck() { docker run --rm --network $NET -v "$1:/etc/openit/exposures:ro" -v "$T/gw-root.crt:/ca.crt:ro" --entrypoint selfcheck-unauth "$ING" "https://gateway:8443" --cacert /ca.crt; }
 AN=$((AN+1)); if out=$(selfcheck "$EXP" 2>&1); then echo "  PASS 자체 점검 명령: $(echo "$out" | tail -1)"; else echo "  FAIL 자체 점검 명령 rc=$?: $(echo "$out" | grep -a FAIL | head -3 | tr '\n' ' ')"; FAILS=$((FAILS+1)); fi
 # 변이: 선언 하나의 인증 종류를 바꾸면(직원 화면 account -> device-token) 같은 명령이 rc=1
