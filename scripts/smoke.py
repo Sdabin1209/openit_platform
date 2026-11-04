@@ -76,10 +76,11 @@ def main():
         t = tag("public-ingress"); imgs.append(t); image_checks("public-ingress", "public-ingress", t)
         sec = st.d / "sec"; pki = st.d / "ipki"; pki.mkdir()
         sh("bash", str(ROOT / "ingress/scripts/gen-test-secrets.sh"), str(sec))
+        dca = st.d / "dpki" / "ca.crt"; subprocess.run(["bash", str(ROOT / "ingress/scripts/device-pki.sh"), "init"], env=dict(os.environ, DEVICE_PKI_DIR=str(st.d / "dpki")), capture_output=True, check=True)   # 기기 CA(필수 입력)
         mounts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && gateway_test_pki {pki} survey-service identity identity-proxy && gateway_test_mounts {pki} && echo $SECRETS_GID").stdout.split()
         gid = mounts[-1]; mounts = mounts[:-1]
         ing = st.run("public-ingress", "--network-alias", "ingress", "--user", "10001:10001", "--group-add", gid, *HARD, "--tmpfs", "/tmp:uid=10001,gid=10001", "--tmpfs", "/data:uid=10001,gid=10001", "--tmpfs", "/config:uid=10001,gid=10001",
-               *mounts, "-e", "GATEWAY_HOSTS=localhost:8443, 127.0.0.1:8443", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/tokens:/run/secrets:ro", t)
+               *mounts, "-e", "GATEWAY_HOSTS=localhost:8443, 127.0.0.1:8443", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/tokens:/run/secrets:ro", "-v", f"{dca}:/etc/openit/device-ca.pem:ro", t)
         # 준비 확인: 응답이 올 때까지(000 = 연결 실패는 아직 준비 전). 튜플은 늘 참이라 wait 가 첫 시도에서 끝나던 결함을 고쳤다
         got = wait(lambda: (lambda r: r if r[0] != "000" else None)(http_in(ing, "http://127.0.0.1:8080/healthz")), "ingress")
         check("public-ingress: /healthz 200 + {\"status\":\"ok\"}", got is not None and got[0] == "200" and '"ok"' in got[1], got)

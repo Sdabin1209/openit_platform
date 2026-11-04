@@ -98,6 +98,7 @@ services:
     volumes:
       - ${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro
       - ${PKI_DIR}/certs:/etc/openit/ingress-tls:ro
+      - ${DEVICE_CA:?}:/etc/openit/device-ca.pem:ro   # 기기 CA(계약 PublicIngressEnv.INGRESS_DEVICE_CA_FILE, 필수)
       - ${EXPOSURES_DIR:?}:/etc/openit/exposures:ro
       - ${SECRETS_DIR:?}/tokens:/run/secrets:ro
     depends_on: {identity-proxy-gw: {condition: service_started}, identity-gw: {condition: service_started}}

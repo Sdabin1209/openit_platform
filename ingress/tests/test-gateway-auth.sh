@@ -16,7 +16,7 @@ cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker net
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | grep -v "\"level\":\"\(info\|warn\)\"" | tail -3 | tr "\n" " " | cut -c1-300)"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 EXP="$ROOT/ingress/tests/exposures"
-ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443,127.0.0.1:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro"; }
+ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443,127.0.0.1:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
 val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) "$ING" validate; }   # 이미지의 validate 부명령: 진입점과 같은 준비(환경 검증·경로 표·기기 조각) 뒤 caddy validate
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 hn() { docker run --rm --entrypoint /opt/gw/bin/python "$ING" /usr/local/bin/gen-host-names.py "$1"; }
@@ -27,6 +27,7 @@ ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못�
 ok "계약 PublicIngressEnv 에 없는 INGRESS_ 이름(예: 옛 INGRESS_BUILTIN)은 시작 거부(종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e INGRESS_BUILTIN=x "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "GATEWAY_HOSTS 가 없으면 시작 거부(필수, 종료 64)" bash -c 'docker run --rm "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "acme 모드에서 GATEWAY_ACME_EMAIL 이 없으면 시작 거부(조건부 필수, 종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e GATEWAY_TLS_MODE=acme "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
+DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1   # 기기 CA(필수 입력 INGRESS_DEVICE_CA_FILE)
 OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-secrets.sh 성공" test -s "$T/tokens/devices/auth-1"
 ok "출력에 비밀 값이 없다" bash -c '! grep -qE "[0-9a-f]{40}" <<<"$1"' _ "$OUT"
 ok "정적 계정 파일·basic_auth 조각은 만들지 않는다(U82: 사람 인증은 OIDC)" bash -c '[ ! -e "$1/gateway-accounts.caddy" ] && ! grep -v "^[[:space:]]*#" "$2/ingress/config/Caddyfile" "$2/ingress/config/gateway-auth.caddy" | grep -q "basic_auth"' _ "$T" "$ROOT"

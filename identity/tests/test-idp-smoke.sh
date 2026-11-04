@@ -25,6 +25,7 @@ echo "== 준비 (비밀·PKI·이미지)"
 bash ingress/scripts/gen-test-secrets.sh "$SECRETS_DIR" >/dev/null 2>&1 || { echo "시험 비밀을 만들지 못했다"; exit 1; }
 bash identity/scripts/gen-idp-secrets.sh "$IDP_SECRETS" || exit 1
 bash identity/scripts/gen-test-pki.sh "$PKI_DIR" || exit 1
+DEVICE_PKI_DIR=$W/dpki bash ingress/scripts/device-pki.sh init >/dev/null 2>&1 || exit 1; export DEVICE_CA=$W/dpki/ca.crt   # 기기 CA(필수 입력)
 BSRC=$(bash scripts/fetch-boundary-src.sh "$W/boundary-src") || exit 1
 BV=$("$PY" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')
 for v in "|$GW_IMG" "public-ingress|$ING_IMG" "identity|$IDP_IMG" "identity-proxy|$PRX_IMG" "identity-db|$DB_IMG"; do
