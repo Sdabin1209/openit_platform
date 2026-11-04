@@ -55,3 +55,35 @@ def test_identity_db_serves_tls_and_picks_up_a_renewed_certificate_without_resta
     finally:
         sh("docker", "rmi", tag, check=False)
         st.close()
+
+
+def test_identity_db_healthcheck_is_healthy_and_turns_unhealthy_without_tls_files():
+    # Dockerfile HEALTHCHECK: 선언 계정으로 TLS 접속이 되면 healthy. 변이: TLS 인증서 파일을 빼면 unhealthy
+    st = Stack("pdh")
+    tag = f"platform-identity-db:h-{st.tag}"
+    try:
+        build("identity-db", tag)
+        assert json.loads(sh("docker", "image", "inspect", tag).stdout)[0]["Config"].get("Healthcheck"), "HEALTHCHECK 가 없다"
+        make_ca(st.d, "a", "identity-db")
+        certs = st.d / "certs"; certs.mkdir(); certs.chmod(0o755)
+        for n in ("crt", "key"): (certs / f"tls.{n}").write_text((st.d / f"a.{n}").read_text())
+        for f in certs.glob("*"): f.chmod(0o644)
+        (st.d / "pw").write_text("superuser-pw"); (st.d / "pw").chmod(0o644)
+        (st.d / "db").mkdir(); (st.d / "db/identity").write_text("identity-pw"); (st.d / "db").chmod(0o755); (st.d / "db/identity").chmod(0o644)
+        vol = st.volume("dbdata")
+        c = st.run("identity-db", "--network-alias", "identity-db", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--tmpfs", "/tmp", "--tmpfs", "/var/run/postgresql:uid=999,gid=999",
+                   "-e", "POSTGRES_PASSWORD_FILE=/run/secrets/pw", "-v", f"{st.d}/pw:/run/secrets/pw:ro", "-v", f"{st.d}/db:/run/secrets/db:ro", "-v", f"{certs}:/certs:ro", "-v", f"{vol}:/var/lib/postgresql/data", tag)
+        def status():
+            return sh("docker", "inspect", "--format", "{{.State.Health.Status}}", c, check=False).stdout.strip()
+        end = time.time() + 120; s = ""
+        while time.time() < end and s != "healthy":   # 준비 확인: 건강 확인 자체가 준비 신호다
+            s = status(); time.sleep(3)
+        assert s == "healthy", st.logs(c)[-600:]
+        (certs / "tls.crt").unlink()   # 변이: TLS 인증서 파일을 뺀다
+        end = time.time() + 90
+        while time.time() < end and s != "unhealthy":
+            s = status(); time.sleep(3)
+        assert s == "unhealthy"
+    finally:
+        sh("docker", "rmi", tag, check=False)
+        st.close()

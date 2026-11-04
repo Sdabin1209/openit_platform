@@ -40,7 +40,6 @@ services:
     volumes: ["${PKI_DIR:?}/certs:/certs:ro", "identity-db-data:/var/lib/postgresql/data"]
     tmpfs: ["/tmp", "/var/run/postgresql:uid=999,gid=999"]
     networks: {db: {aliases: [identity-db]}}
-    healthcheck: {test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"], interval: 5s, timeout: 3s, retries: 30, start_period: 10s}
   identity-net:
     <<: *pause
     networks: {auth: {aliases: [identity]}, db: {}}

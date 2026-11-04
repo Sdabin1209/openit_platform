@@ -14,6 +14,8 @@ COPY --chmod=755 db/entrypoint.sh /usr/local/bin/identity-db-entrypoint.sh
 COPY --chmod=755 db/10-accounts.sh /docker-entrypoint-initdb.d/10-accounts.sh
 LABEL io.openit.service="identity-db" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a" \
       io.openit.database='{"engine":"postgresql","major":16,"port":5432,"accounts":[{"name":"identity","database":"identity","privilege":"owner","url_env":["IDENTITY_DB_URL_FILE"]}]}'
+# 건강 확인(Docker 표준 HEALTHCHECK): 선언 계정으로 TLS 접속이 되는지 본다(배치가 pg_isready 로 대신 확인하지 않는다). 시작 유예 60초는 initdb·계정 생성 시간의 여유값이고 측정하지 않았다
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=3 CMD ["/usr/local/bin/identity-db-entrypoint.sh", "health"]
 USER postgres
 ENTRYPOINT ["/usr/local/bin/identity-db-entrypoint.sh"]
 CMD ["postgres"]

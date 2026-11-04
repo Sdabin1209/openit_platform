@@ -4,6 +4,14 @@
 set -eu
 ENVOUT=$(envcheck /etc/openit/schemas/AreaDatabaseEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
 eval "$ENVOUT"
+# 부명령 health(Dockerfile HEALTHCHECK): 서버 TLS 인증서 파일을 읽을 수 있고, 선언한 계정(DatabaseDeclaration, 암호는 DB_ACCOUNT_SECRETS_DIR/<계정>)으로 TLS 접속해 질의가 되면 건강하다. 컨테이너 안 루프백이라 인증서 이름 검증(verify-full)은 못 하고 TLS 사용(require)을 확인한다.
+if [ "${1:-}" = health ]; then
+  [ -r "$DB_TLS_DIR/tls.crt" ] && [ -r "$DB_TLS_DIR/tls.key" ] || { echo "identity-db: TLS 파일을 읽을 수 없다" >&2; exit 1; }
+  for acc in $(grep -o '"name":"[a-z0-9_]*"' /etc/openit/database.json | cut -d'"' -f4); do   # 이 이미지의 선언은 계정 이름 = 데이터베이스 이름이다
+    PGPASSWORD=$(tr -d '\r\n' < "$DB_ACCOUNT_SECRETS_DIR/$acc") PGSSLMODE=require psql -X -q -h 127.0.0.1 -U "$acc" -d "$acc" -tAc 'select 1' >/dev/null 2>&1 || { echo "identity-db: 계정 $acc 로 TLS 접속이 안 된다" >&2; exit 1; }
+  done
+  exit 0
+fi
 [ -r "$DB_TLS_DIR/tls.crt" ] && [ -r "$DB_TLS_DIR/tls.key" ] || { echo "identity-db: $DB_TLS_DIR/tls.{crt,key} 가 없다(서버 TLS 필수)" >&2; exit 64; }
 [ -r "$POSTGRES_PASSWORD_FILE" ] || { echo "identity-db: POSTGRES_PASSWORD_FILE 이 가리키는 파일이 없다" >&2; exit 64; }
 T=/tmp/pgtls; mkdir -p "$T"; chmod 700 "$T"
