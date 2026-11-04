@@ -2,6 +2,7 @@
 # (authenticate): 세션이 없으면 R3.23(/v1/ 401 BoundaryError, 화면 302, 그 밖 비 html 401, 모든 401 에 WWW-Authenticate: Bearer realm="openit"), 인증 확인이 느리거나 5xx 면 R3.12(503 UU).
 # 역할 판정(R3.24)과 가입 승인 대기(ACCOUNT_PENDING_APPROVAL)는 경로마다 생성되는 코드(ingress/gen-ingress-routes.py)가 한다: Exposure.auth.roles 에서 만든다.
 (authenticate) {
+	vars auth_phase checking   # 왜: 인증 확인(forward_auth)이 시간 초과·연결 실패로 끝나면 handle_errors 가 이 값으로 504 가 아니라 503 UU 를 고른다(R3.12)
 	request_header -X-Auth-Request-User
 	request_header -X-Auth-Request-Preferred-Username
 	request_header -X-Auth-Request-Groups
@@ -44,4 +45,5 @@
 			respond `{"code":"UPSTREAM_UNAVAILABLE"}` 503
 		}
 	}
+	vars auth_phase done
 }

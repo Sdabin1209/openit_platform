@@ -185,6 +185,13 @@ http://:8080 {
 	# 영역 경로 표: 각 영역의 Exposure 선언에서 생성한다(ingress/gen-ingress-routes.py, S9). 손으로 쓴 영역 경로는 없다.
 	import /tmp/openit/routes.caddy
 	handle_errors {
+		@authdown expression `{vars.auth_phase} == "checking"`
+		handle @authdown {
+			header Content-Type application/json
+			header Retry-After 5
+			header Cache-Control no-store
+			respond `{"pipeline_schema_version":"2.0","code":"UNAVAILABLE","message":"authentication check unavailable","retryable":true}` 503
+		}
 		@refused expression {http.error.status_code} in [502, 503]
 		@timedout expression {http.error.status_code} == 504
 		@toomany expression {http.error.status_code} == 429

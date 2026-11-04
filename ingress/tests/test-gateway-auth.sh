@@ -234,5 +234,23 @@ c=$(call - GET /oauth2/start); [ "$c" = 200 ] && echo "  PASS /oauth2/* 는 인�
 c=$(call staff-e2e GET /oauth2/auth); [ "$c" = 404 ] && echo "  PASS /oauth2/auth 는 밖에 닫혀 있다(404)" || { echo "  FAIL /oauth2/auth -> $c"; FAILS=$((FAILS+1)); }
 c=$(call - GET /auth/realms/openit/.well-known/openid-configuration); [ "$c" = 200 ] && echo "  PASS /auth/realms/openit/* 는 Keycloak 으로 간다" || { echo "  FAIL /auth/realms/openit -> $c"; FAILS=$((FAILS+1)); }
 c1=$(call - GET /auth/realms/master/protocol/openid-connect/auth); c2=$(call - GET /auth/admin/master/console/); [ "$c1" = 404 ] && [ "$c2" = 404 ] && echo "  PASS Keycloak master realm 은 밖에 닫혀 있다(404)" || { echo "  FAIL master realm -> $c1 $c2"; FAILS=$((FAILS+1)); }
+# R3.12: 인증 확인(oauth2-proxy)이 응답하지 않으면 401·로그인 이동이 아니라 503 + Retry-After: 5 (UU). 변이: 되살리면 같은 요청이 200
+docker pause $CF-tls >/dev/null; AN=$((AN+2))
+c=$(call staff-e2e GET /v1/staff/alerts); r=$(grep -i '^retry-after:' "$T/ah.out" | tr -d '\r' | head -1)
+if [ "$c" = 503 ] && grep -qi '^retry-after: 5' <<<"$r"; then echo "  PASS R3.12 인증 확인이 멈추면 503 + Retry-After: 5 (401·302 가 아니다)"; else echo "  FAIL R3.12 인증 확인 정지 -> $c '$r' (기대 503 + Retry-After: 5)"; FAILS=$((FAILS+1)); fi
+docker unpause $CF-tls >/dev/null
+c=$(call staff-e2e GET /v1/staff/alerts); [ "$c" = 200 ] && echo "  PASS R3.12 변이: 인증 확인이 돌아오면 같은 요청이 200" || { echo "  FAIL R3.12 변이 -> $c"; FAILS=$((FAILS+1)); }
+# R10.4: 로그인 경로의 속도 제한. 한도(LOGIN_RATE_EVENTS 기본 30/분)를 넘으면 429 + Retry-After + BoundaryError(UNAVAILABLE, retryable). 변이: 제한 없는 경로는 같은 횟수에도 429 가 없다
+AN=$((AN+3)); got429=0
+for i in $(seq 1 40); do c=$(call - GET /oauth2/start); [ "$c" = 429 ] && { got429=1; break; }; done
+if [ $got429 = 1 ] && grep -qi '^retry-after: [0-9]' "$T/ah.out" && grep -q '"code":"UNAVAILABLE"' "$T/ab.out" && grep -q '"retryable":true' "$T/ab.out"; then echo "  PASS R10.4 로그인 경로 한도 초과는 429 + Retry-After + UNAVAILABLE(retryable)"; else echo "  FAIL R10.4 속도 제한 (429 $got429, $(head -c 100 "$T/ab.out"))"; FAILS=$((FAILS+1)); fi
+n429=0; for i in $(seq 1 40); do c=$(call staff-e2e GET /v1/staff/alerts); [ "$c" = 429 ] && n429=$((n429+1)); done
+[ $n429 = 0 ] && echo "  PASS R10.4 변이: 앱 경로는 같은 횟수에도 429 를 만들지 않는다" || { echo "  FAIL R10.4 앱 경로에 429 가 $n429 번"; FAILS=$((FAILS+1)); }
+# 414/431: 너무 큰 요청 머리글은 BoundaryError(INVALID_RECORD)
+c=$(python3 "$ROOT/ingress/tests/raw_big.py" "$CP" header); AN=$((AN+1))   # curl 은 큰 값을 보내지 못해(000) 소켓으로 직접 보낸다
+# 계약(CONVENTIONS 92행, R10.2): 전송 계층은 앱을 부르기 전에 431 을 낼 수 있어 본문이 BoundaryError 가 아닐 수 있다. 클라이언트는 상태 코드로 INVALID_RECORD 로 본다. Go net/http 가 평문 본문으로 답한다(측정함)
+if [ "$c" = 431 ]; then echo "  PASS 431 머리글 과대는 431 (본문은 전송 계층이 정한다: 계약이 허용)"; else echo "  FAIL 431 시험 -> $c (기대 431)"; FAILS=$((FAILS+1)); fi
+c2=$(python3 "$ROOT/ingress/tests/raw_big.py" "$CP" line); AN=$((AN+1))
+if [ "$c2" = 414 ] || [ "$c2" = 431 ]; then echo "  PASS 긴 요청 줄은 414/431 ($c2)"; else echo "  FAIL 긴 요청 줄 -> $c2 (기대 414 또는 431)"; FAILS=$((FAILS+1)); fi
 echo "  인증 계약 시험 ${AN}건 실행"
 [ $FAILS = 0 ] && echo "통과: 게이트웨이 인증 자체 시험" || { echo "실패: $FAILS건"; exit 1; }
