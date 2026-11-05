@@ -2,6 +2,9 @@
 # identity-db 진입점(D126): 환경을 계약 AreaDatabaseEnv 로 검증하고(위반 64), 서버 TLS 파일을 postgres 소유 0600 으로 /tmp(tmpfs)에 옮기고, 접속 규칙(pg_hba)을 만들어 공식 진입점으로 넘긴다.
 # 접속 규칙: 네트워크는 TLS + 암호(scram)만, 소켓(컨테이너 안)만 신뢰한다. 계정은 첫 초기화 때 10-accounts.sh 가 DatabaseDeclaration(/etc/openit/database.json)대로 만든다.
 set -eu
+# 첫 인자가 절대 경로면 잡 선언 argv 다(계약 JobsDeclaration.argv: 이미지 안에서 실행할 명령). 서버 환경 검사 없이 그대로 실행한다(Docker 표준 진입점 관례).
+# 서버 역할의 Env 검사를 잡에 걸면 잡에 없는 서버 입력을 요구하게 된다(2026-11-06 E2E 잡 실패에서)
+case "${1:-}" in /*) exec "$@";; esac
 ENVOUT=$(envcheck /etc/openit/schemas/AreaDatabaseEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
 eval "$ENVOUT"
 # 부명령 health(Dockerfile HEALTHCHECK): 서버 TLS 인증서 파일을 읽을 수 있고, 선언한 계정(DatabaseDeclaration, 암호는 DB_ACCOUNT_SECRETS_DIR/<계정>)으로 TLS 접속해 질의가 되면 건강하다. 컨테이너 안 루프백이라 인증서 이름 검증(verify-full)은 못 하고 TLS 사용(require)을 확인한다.

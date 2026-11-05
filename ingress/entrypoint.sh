@@ -2,6 +2,9 @@
 # 공개 입구 시작: 환경을 계약 PublicIngressEnv 로 검증하고(위반 64), 마운트된 영역 Exposure 선언들에서 경로 표(routes.caddy)를, 기기 토큰 폴더에서 devices.caddy 를, GATEWAY_HOSTS 에서 허용 호스트 목록을 만든 뒤 caddy 를 실행한다.
 # 선언이 계약을 어기면 시작하지 않는다(종료 65). 비밀 값은 출력하지 않는다.
 set -eu
+# 첫 인자가 절대 경로면 잡 선언 argv 다(계약 JobsDeclaration.argv: 이미지 안에서 실행할 명령). 서버 환경 검사 없이 그대로 실행한다(Docker 표준 진입점 관례).
+# 서버 역할의 Env 검사를 잡에 걸면 잡에 없는 서버 입력을 요구하게 된다(2026-11-06 E2E 잡 실패에서)
+case "${1:-}" in /*) exec "$@";; esac
 # 부명령 health(이미지 HEALTHCHECK): 평문 루프백 포트의 /healthz 가 200 + {"status":"ok"} 이면 건강하다(R1.1: 평문은 루프백만). 환경·선언 준비 없이 동작한다.
 if [ "${1:-}" = health ]; then wget -q -T 3 -O- http://127.0.0.1:8080/healthz | grep -q '"status":"ok"'; exit $?; fi
 ENVOUT=$(envcheck /etc/openit/schemas/PublicIngressEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다

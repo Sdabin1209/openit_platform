@@ -20,4 +20,7 @@ LABEL io.openit.jobs="${JOBS_JSON}" io.openit.exposure="${EXPOSURE_JSON}" io.ope
 # 건강 확인(Docker 표준 HEALTHCHECK): 관리 포트의 준비 경로. 첫 기동은 realm 가져오기로 오래 걸린다(시작 유예 90초는 측정하지 않은 값)
 HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=3 CMD ["/usr/local/bin/identity-entry", "health", "keycloak"]
 USER 1000
-ENTRYPOINT ["/usr/local/bin/identity-entry", "keycloak"]
+# 진입점만 ENTRYPOINT 에, 기본 역할은 CMD 에 둔다(Docker 표준): deploy 는 잡을 compose command = 잡 선언 argv 로 띄운다(CONVENTIONS 13절).
+# 역할을 ENTRYPOINT 에 박아 두면 잡 argv 가 그 뒤 인자로 붙어 Keycloak 서버 경로가 돌았다(E2E 사용자 등록 잡 실패, 2026-11-06).
+ENTRYPOINT ["/usr/local/bin/identity-entry"]
+CMD ["keycloak"]

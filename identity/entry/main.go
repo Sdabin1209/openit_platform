@@ -169,6 +169,12 @@ func main() {
 	if len(os.Args) < 2 {
 		die(64, "사용: identity-entry keycloak|proxy")
 	}
+	// 첫 인자가 절대 경로면 잡 선언 argv 다(계약 JobsDeclaration.argv: 이미지 안에서 실행할 명령). 그 명령을 그대로 실행한다(Docker 표준 진입점 관례)
+	if strings.HasPrefix(os.Args[1], "/") {
+		if err := syscall.Exec(os.Args[1], os.Args[1:], os.Environ()); err != nil {
+			die(126, "명령을 실행하지 못했다: %s", os.Args[1])
+		}
+	}
 	switch os.Args[1] {
 	case "keycloak":
 		keycloak()

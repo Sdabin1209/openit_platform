@@ -55,7 +55,7 @@ def run_job(st, service, job, volume, *, creds="creds", url="https://backup-stor
     argv = j["argv"]
     r = sh("docker", "run", "--rm", "--network", st.net, *HARD, "-v", f"{volume}:{mount}", "-v", f"{st.d}/root_ca.crt:/ca.pem:ro", "-v", f"{st.d}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro", "-v", f"{st.d}/sec:/sec:ro",
            "-e", f"OPENIT_BACKUP_URL={url}", "-e", f"OPENIT_BACKUP_CREDENTIALS_FILE=/sec/{creds}", "-e", "OPENIT_BACKUP_REPO_PASSWORD_FILE=/sec/repopw", "-e", f"{envname}={envval}",
-           "--entrypoint", argv[0], st.tags[service], *argv[1:], check=False, timeout=300)
+           st.tags[service], *argv, check=False, timeout=300)   # deploy 와 같다: 진입점은 이미지 그대로, 잡 argv 전체를 command 로(CONVENTIONS 13절)
     last = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
     return r.returncode, json.loads(last) if last.startswith("{") else None, r
 

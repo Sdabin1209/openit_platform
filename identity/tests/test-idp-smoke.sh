@@ -46,7 +46,7 @@ cat > "$W/usersjob.sh" <<JOB
 # usersjob.sh <설정 JSON> [관리자 암호 파일]: 라벨이 선언한 잡을 deploy 가 연결하는 것(설정 파일, 비밀 파일, 루트 인증서, identity 가 있는 네트워크)과 함께 돌린다
 mapfile -t A < <(printf '%s' '$JOBARGV')
 exec $DOCKER run --rm --network ${P}_auth --user 1000:1000 --group-add $SECRETS_GID --read-only --tmpfs /tmp -v $PKI_DIR/root_ca.crt:/ca.pem:ro -v "\${2:-$IDP_SECRETS/identity-admin-password}":/run/secrets/adminpw:ro \\
-  -v $SECRETS_DIR/tokens:/pw:ro -v $W:/wk:ro -v "\$1":$JOBCFG:ro -e IDENTITY_ROOT_CA=/ca.pem -e IDENTITY_ADMIN_PASSWORD_FILE=/run/secrets/adminpw --entrypoint "\${A[0]}" $IDP_IMG "\${A[@]:1}"
+  -v $SECRETS_DIR/tokens:/pw:ro -v $W:/wk:ro -v "\$1":$JOBCFG:ro -e IDENTITY_ROOT_CA=/ca.pem -e IDENTITY_ADMIN_PASSWORD_FILE=/run/secrets/adminpw $IDP_IMG "\${A[@]}"   # deploy 와 같다: 진입점은 그대로 두고 잡 argv 전체를 command 로 준다(CONVENTIONS 13절)
 JOB
 chmod +x "$W/usersjob.sh"; export USERSJOB=$W/usersjob.sh
 python3 - "$ROOT/ingress/tests/gateway-oidc/accounts.test.conf" "$W/users.json" <<'PY'

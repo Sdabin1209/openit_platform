@@ -7,6 +7,8 @@
 # 비밀번호는 파일(/run/secrets/step-ca-password)로만 받고 출력하지 않는다. 환경 변수: STEP_CA_PORT(9000) STEP_CA_DNS_NAMES(공백 구분 추가 이름) STEP_CA_URL(기본 https://step-ca:$PORT)
 #   STEP_CERT_NOT_AFTER(발급 수명, 비면 인증기관 기본 24h) STEP_RENEW_EXPIRES_IN(남은 수명이 이보다 짧아지면 갱신, 기본 12h = 수명 24h 의 절반)
 set -eu
+# 첫 인자가 절대 경로면 잡 선언 argv 다(계약 JobsDeclaration.argv: 이미지 안에서 실행할 명령). 역할 분기·환경 검사 없이 그대로 실행한다(Docker 표준 진입점 관례, 2026-11-06)
+case "${1:-}" in /*) exec "$@";; esac
 # 환경은 계약 StepCaEnv 로 검증하고 기본값을 채운다(위반 64)
 ENVOUT=$(envcheck /etc/openit/schemas/StepCaEnv.schema.json) || exit 64   # 명령 치환 안의 실패는 eval 에 가려지므로 먼저 받아 종료 코드를 본다
 eval "$ENVOUT"
