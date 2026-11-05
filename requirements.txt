@@ -1,5 +1,5 @@
 # platform 영역의 파이썬 환경(시험·생성기). 버전은 이 파일 한 곳에서만 핀한다(deploy 기준표와 같은 값: DEPLOY_BC_TAG).
 # 원격 동결 동안에는 호출자가 GIT_CONFIG_GLOBAL=<로컬 미러 git 설정 파일> 로 설치한다(구조 점검 S14; 이 파일은 경로를 모른다).
-boundary-contracts @ git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v3.4.18
+boundary-contracts @ git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v3.4.19
 PyYAML==6.0.2
 pytest==8.3.4
