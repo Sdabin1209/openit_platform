@@ -3,6 +3,7 @@
  선언 밖은 403 + BoundaryError(PERMISSION_DENIED, details.reason=EGRESS_DENIED) (3) 변이: egress 에서 상대를 빼면 같은 호출이 403 이 된다."""
 import json, pathlib, subprocess, sys, tempfile, time, uuid
 import pytest
+from ops_common import lock   # 이미지 digest 의 출처: locks/images.lock
 
 from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 계약 패키지의 현행 값과 같아야 한다(박지 않는다)
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -52,7 +53,7 @@ def stack():
             if p.is_file(): p.chmod(0o644)
         exposure = json.loads((d / "boundary-src/examples/Exposure.json").read_text()); exposure["egress"] = ["svc-x"]
         (d / "exposure.json").write_text(json.dumps(exposure))
-        util = "python:3.12-slim"
+        util = lock("UTIL_IMAGE")
         for nm, tls in (("svc-x", True), ("svc-y", True)):
             code = ("import http.server,ssl\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(b'from-" + nm + "')\n def log_message(s,*a): pass\n"
                     "h=http.server.ThreadingHTTPServer(('0.0.0.0',443),H); c=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain('/c.crt','/c.key'); h.socket=c.wrap_socket(h.socket,server_side=True); h.serve_forever()")
@@ -91,7 +92,7 @@ def test_egress_allowed_peer_gets_a_tunnel_with_tls_end_to_end(stack):
 
 def test_egress_undeclared_peer_is_403_boundary_error(stack):
     # curl 은 CONNECT 거절을 오류로 낸다: 거절 응답(상태 줄·본문)을 소켓으로 직접 받는다
-    raw = sh("docker", "run", "--rm", "--network", inns(stack), "python:3.12-slim", "python", "-c",
+    raw = sh("docker", "run", "--rm", "--network", inns(stack), lock("UTIL_IMAGE"), "python", "-c",
              "import socket;s=socket.create_connection(('127.0.0.1',3128));s.sendall(b'CONNECT svc-y:443 HTTP/1.1\\r\\nHost: svc-y:443\\r\\n\\r\\n');s.settimeout(3);d=b''.join(iter(lambda: s.recv(4096), b''));print(d.decode())").stdout
     head, _, b = raw.replace("\r\n", "\n").partition("\n\n")   # subprocess 텍스트 모드가 CRLF 를 LF 로 바꾼다
     assert head.startswith("HTTP/1.1 403")
@@ -137,7 +138,7 @@ def test_upstream_port_routes_to_a_loopback_component(stack):
     exposure = json.loads((stack["d"] / "exposure.json").read_text())
     exposure["routes"] = [{"paths": ["/v1/second/*"], "auth": {"kind": "none"}, "upstream_port": 9090}]
     start_gw(stack, "gwport", exposure)
-    sh("docker", "run", "-d", "--name", f"comp2-{tag}", "--network", f"container:gwport-{tag}", "python:3.12-slim", "python", "-c",
+    sh("docker", "run", "-d", "--name", f"comp2-{tag}", "--network", f"container:gwport-{tag}", lock("UTIL_IMAGE"), "python", "-c",
        "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(b'second')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('127.0.0.1',9090),H).serve_forever()")
     time.sleep(3)
     try:

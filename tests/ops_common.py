@@ -1,6 +1,6 @@
 """운영 이미지(monitoring·backup-store·step-ca) 시험 공용. 빌드 입력은 이웃 작업 트리가 아니라 requirements.txt 의 고정 태그를 받은 것이다(fetch-boundary-src.sh).
 외부 이미지는 locks/images.lock 의 digest 로 쓴다(시험이 쓰는 이미지가 배포가 쓰는 것과 같다)."""
-import json, pathlib, shutil, subprocess, tempfile, uuid
+import json, os, pathlib, shutil, subprocess, tempfile, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PY = str(ROOT / ".venv/bin/python")

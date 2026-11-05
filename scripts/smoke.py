@@ -4,6 +4,10 @@ identity(Keycloak optimized)는 영역 이미지가 아니라 io.openit.* 라벨
 import json, os, pathlib, subprocess, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
+for _l in subprocess.run(["bash", str(ROOT / "scripts/docker-env.sh")], capture_output=True, text=True).stdout.splitlines():   # docker 환경 한 곳
+    if _l.startswith("export "):
+        _k, _, _v = _l[len("export "):].partition("=")
+        os.environ.setdefault(_k, _v.strip("'"))
 from ops_common import Stack, boundary_src, build, make_ca, sh
 
 CURL = "curlimages/curl:8.10.1"

@@ -2,6 +2,7 @@
 # platform 공통 셸 함수(source 해서 쓴다). 이 영역 시험·스크립트가 deploy 의 lib.sh 에 기대지 않게 필요한 것만 둔다(구조 규칙 1).
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOCKER=${DOCKER:-docker}
+eval "$(bash "$ROOT/scripts/docker-env.sh")"   # docker 환경 한 곳(사용자 전역 ~/.docker 에 기대지 않는다)
 PY="$ROOT/.venv/bin/python"; DEPLOY_PY=$PY   # kiosk-add-device.sh 가 쓰는 이름
 SECRETS_GID="${SECRETS_GID:-$(id -g)}"
 die() { echo "오류: $*" >&2; exit 1; }

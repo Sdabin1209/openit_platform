@@ -5,6 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DOCKER=${DOCKER:-docker}; PYTHON=.venv/bin/python
+eval "$(bash scripts/docker-env.sh)"   # docker 환경 한 곳(사용자 전역 ~/.docker 에 기대지 않는다)
 die() { echo "build-image: $*" >&2; exit 1; }
 [ -x "$PYTHON" ] || die "$PYTHON 이 없다. 먼저 bash scripts/setup-env.sh 로 환경을 만든다"
 [ $# -eq 1 ] && [ -f "$1" ] || die "사용: bash scripts/build-image.sh <요청 JSON 파일>"
