@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "image": "identity-proxy",
+  "read_only_root": true,
+  "exec_absolute_argv": true,
+  "role_env": null,
+  "roles": {
+    "default": {
+      "env_schema": "IdentityProxyEnv",
+      "process": {
+        "uid": 65532,
+        "gid": 65532
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_CLIENT_SECRET_FILE",
+          "path": "/run/secrets/identity-client-secret",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_COOKIE_SECRET_FILE",
+          "path": "/run/secrets/identity-cookie-secret",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 65532,
+            "gid": 65532
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  },
+  "jobs": {}
+}

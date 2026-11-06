@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "image": "public-ingress",
+  "read_only_root": true,
+  "exec_absolute_argv": true,
+  "role_env": null,
+  "roles": {
+    "default": {
+      "env_schema": "PublicIngressEnv",
+      "process": {
+        "uid": 10001,
+        "gid": 0
+      },
+      "files": [
+        {
+          "path_env": "INGRESS_DEVICE_CA_FILE",
+          "path": "/etc/openit/device-ca.pem",
+          "directory": false,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/exposures",
+          "directory": true,
+          "kind": "declaration",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/ingress-tls/tls.crt",
+          "directory": false,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/ingress-tls/tls.key",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/devices",
+          "directory": true,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gate-read-model-serving",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gate-read-operator",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gate-read-release-approver",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gate-write-operator",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gate-write-release-approver",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gateway-inference-token",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/gateway-registry-publish-token",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/model-registry-write-model-lab",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/ops-read-reviewer",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/ops-review-reviewer",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/qa-gateway-token",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/survey-api-staff",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/survey-result-reader",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "INGRESS_TLS_DIR",
+          "path": "/etc/openit/ingress-tls",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "INGRESS_UPSTREAM_TOKENS_DIR",
+          "path": "/run/secrets",
+          "directory": true,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/config",
+          "persist": false,
+          "written_by": {
+            "uid": 10001,
+            "gid": 10001
+          }
+        },
+        {
+          "path": "/data",
+          "persist": true,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        },
+        {
+          "path": "/etc/openit/root-out",
+          "persist": true,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        },
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        }
+      ],
+      "capabilities": [
+        "NET_BIND_SERVICE"
+      ],
+      "sysctls": {}
+    }
+  },
+  "jobs": {
+    "gateway-backup": {
+      "env_schema": "PublicIngressBackupEnv",
+      "process": {
+        "uid": 10001,
+        "gid": 0
+      },
+      "files": [
+        {
+          "path_env": "SSL_CERT_FILE",
+          "path": "/etc/openit/pki/root_ca.crt",
+          "directory": false,
+          "kind": "ca-bundle",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "INGRESS_UPSTREAM_TOKENS_DIR",
+          "path": "/run/secrets",
+          "directory": true,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "OPENIT_BACKUP_CREDENTIALS_FILE",
+          "path": "/run/secrets/backup-gateway-credentials",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "OPENIT_BACKUP_REPO_PASSWORD_FILE",
+          "path": "/run/secrets/backup-gateway-repo-password",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/data",
+          "persist": true,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        },
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    },
+    "gateway-restore": {
+      "env_schema": "PublicIngressBackupEnv",
+      "process": {
+        "uid": 10001,
+        "gid": 0
+      },
+      "files": [
+        {
+          "path_env": "SSL_CERT_FILE",
+          "path": "/etc/openit/pki/root_ca.crt",
+          "directory": false,
+          "kind": "ca-bundle",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "INGRESS_UPSTREAM_TOKENS_DIR",
+          "path": "/run/secrets",
+          "directory": true,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "OPENIT_BACKUP_CREDENTIALS_FILE",
+          "path": "/run/secrets/backup-gateway-credentials",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "OPENIT_BACKUP_REPO_PASSWORD_FILE",
+          "path": "/run/secrets/backup-gateway-repo-password",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/data",
+          "persist": true,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        },
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 10001,
+            "gid": 0
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  }
+}

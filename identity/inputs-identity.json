@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "image": "identity",
+  "read_only_root": true,
+  "exec_absolute_argv": true,
+  "role_env": null,
+  "roles": {
+    "default": {
+      "env_schema": "IdentityEnv",
+      "process": {
+        "uid": 1000,
+        "gid": 0
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_ADMIN_PASSWORD_FILE",
+          "path": "/run/secrets/identity-admin-password",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_CLIENT_SECRET_FILE",
+          "path": "/run/secrets/identity-client-secret",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_DB_URL_FILE",
+          "path": "/run/secrets/identity-db-url",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_INITIAL_ADMIN_PASSWORD_FILE",
+          "path": "/run/secrets/identity-initial-admin-password",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/opt/keycloak/data/import",
+          "persist": false,
+          "written_by": {
+            "uid": 1000,
+            "gid": 0
+          }
+        },
+        {
+          "path": "/opt/keycloak/data/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 1000,
+            "gid": 0
+          }
+        },
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 1000,
+            "gid": 0
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  },
+  "jobs": {
+    "register-users": {
+      "env_schema": "IdentityUsersEnv",
+      "process": {
+        "uid": 1000,
+        "gid": 0
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "IDENTITY_ADMIN_PASSWORD_FILE",
+          "path": "/run/secrets/identity-admin-password",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 1000,
+            "gid": 0
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  }
+}

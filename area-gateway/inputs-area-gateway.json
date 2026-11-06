@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "image": "area-gateway",
+  "read_only_root": true,
+  "exec_absolute_argv": true,
+  "role_env": null,
+  "roles": {
+    "default": {
+      "env_schema": "AreaGatewayEnv",
+      "process": {
+        "uid": 101,
+        "gid": 101
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/certs",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/exposure.json",
+          "directory": false,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 101,
+            "gid": 101
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  },
+  "jobs": {}
+}

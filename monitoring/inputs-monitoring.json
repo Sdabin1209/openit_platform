@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "image": "monitoring",
+  "read_only_root": true,
+  "exec_absolute_argv": true,
+  "role_env": "MONITORING_ROLE",
+  "roles": {
+    "alertmanager": {
+      "env_schema": "MonitoringEnv",
+      "process": {
+        "uid": 65534,
+        "gid": 65534
+      },
+      "files": [],
+      "writable": [
+        {
+          "path": "/alertmanager",
+          "persist": true,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        },
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    },
+    "blackbox": {
+      "env_schema": "MonitoringEnv",
+      "process": {
+        "uid": 65534,
+        "gid": 65534
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    },
+    "json": {
+      "env_schema": "MonitoringEnv",
+      "process": {
+        "uid": 65534,
+        "gid": 65534
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    },
+    "node": {
+      "env_schema": "MonitoringEnv",
+      "process": {
+        "uid": 65534,
+        "gid": 65534
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/host",
+          "directory": true,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/textfile",
+          "directory": true,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    },
+    "prometheus": {
+      "env_schema": "MonitoringEnv",
+      "process": {
+        "uid": 65534,
+        "gid": 65534
+      },
+      "files": [
+        {
+          "path_env": null,
+          "path": "/etc/openit/monitoring/targets",
+          "directory": true,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "certificate",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/prometheus",
+          "persist": true,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        },
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 65534,
+            "gid": 65534
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  },
+  "jobs": {}
+}

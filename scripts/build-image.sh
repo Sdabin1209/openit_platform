@@ -24,6 +24,36 @@ for k, val in {"SRC": req["source_dir"], "REVISION": req["revision"], "BOUNDARY_
 PY
 ) || exit 1
 eval "$VARS"
+# 주입 선언(계약 ContainerInputs 3.5.0, 라벨 io.openit.inputs): 정본은 리포 안 JSON. 라벨로 달기 전에 계약으로 검증하고(R7), 빌드한 이미지의 실행 사용자와 대조한다.
+# 왜 대조하는가: 배치 영역은 선언의 숫자 uid:gid 로 파일·쓰기 권한을 준다. 이미지와 다르면 기동에서야 권한 오류가 난다(2026-11-06 DB 비밀 읽기 실패).
+inputs_label() {   # inputs_label <선언 파일> <이미지 이름> -> 한 줄 JSON(표준 출력)
+  "${PYTHON:-${PY:-python3}}" -c '
+import json, sys
+from boundary_contracts import validator
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+if d.get("image") != sys.argv[2]:
+    sys.exit("%s 의 image(%s)가 이미지 이름 %s 와 다르다" % (sys.argv[1], d.get("image"), sys.argv[2]))
+errs = list(validator("ContainerInputs").iter_errors(d))
+if errs:
+    sys.exit("%s 가 ContainerInputs 를 어긴다: " % sys.argv[1] + ", ".join("/" + "/".join(map(str, e.absolute_path)) + ":" + e.validator for e in errs[:5]))
+print(json.dumps(d, ensure_ascii=False, separators=(",", ":"), sort_keys=True))' "$1" "$2"
+}
+inputs_check() {   # inputs_check <이미지 태그> <inputs_label 출력>: 다르면 이미지를 지우고 실패
+  local u g cu
+  # 실행 사용자: 이미지 안 id 로 읽는다. id 가 없는 이미지(distroless)는 이미지 설정 User 가 숫자 uid:gid 일 때만 그 값을 쓴다(이름이면 판정하지 못해 실패)
+  if u=$("${DOCKER:-docker}" run --rm --network none --entrypoint id "$1" -u 2>/dev/null) && g=$("${DOCKER:-docker}" run --rm --network none --entrypoint id "$1" -g 2>/dev/null); then :
+  else
+    cu=$("${DOCKER:-docker}" image inspect "$1" --format '{{.Config.User}}' 2>/dev/null)
+    if [[ "$cu" =~ ^([0-9]+):([0-9]+)$ ]]; then u=${BASH_REMATCH[1]}; g=${BASH_REMATCH[2]}
+    else "${DOCKER:-docker}" rmi -f "$1" >/dev/null 2>&1; echo "build-image: 이미지 실행 사용자를 읽지 못했다(id 없음, User=$cu): $1" >&2; return 1; fi
+  fi
+  "${PYTHON:-${PY:-python3}}" -c '
+import json, sys
+d = json.loads(sys.argv[1]); u, g = int(sys.argv[2]), int(sys.argv[3])
+bad = sorted(k for s in ("roles", "jobs") for k, st in d[s].items() if (st["process"]["uid"], st["process"]["gid"]) != (u, g))
+sys.exit("주입 선언의 process 가 이미지 실행 사용자 %d:%d 와 다르다: %s" % (u, g, bad) if bad else 0)' "$2" "$u" "$g" \
+    || { "${DOCKER:-docker}" rmi -f "$1" >/dev/null 2>&1; echo "build-image: 주입 선언이 이미지와 다르다. 이미지를 지웠다: $1" >&2; return 1; }
+}
 [ "$(cd "$SRC" && pwd -P)" = "$(pwd -P)" ] || die "source_dir($SRC)이 이 리포 루트가 아니다"
 # 라벨 정직성: 요청 버전이 아니라 이 영역이 실제로 설치한 계약 패키지 버전으로 찍는다
 ACTUAL="v$("$PYTHON" -c 'import importlib.metadata as m; print(m.version("boundary-contracts"))')"
@@ -62,7 +92,11 @@ PY
   ) || exit 1
   EXPARGS+=(--build-arg "JOBS_JSON=$JOBSJSON")
 fi
-"$DOCKER" build -q -t "$IMAGE_TAG" "${EXPARGS[@]}" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" -f "$CTX/$DOCKERFILE" "${CTXARGS[@]}" "$CTX" >&2
+# 주입 선언 라벨(io.openit.inputs, 계약 ContainerInputs 3.5.0): 정본은 $CTX/inputs-$SERVICE.json 한 곳. 모든 이미지에 필수다
+[ -f "$CTX/inputs-$SERVICE.json" ] || die "$CTX/inputs-$SERVICE.json 이 없다(모든 영역 이미지는 주입 선언을 낸다, 계약 3.5.0)"
+INPUTS=$(inputs_label "$CTX/inputs-$SERVICE.json" "$SERVICE") || exit 1
+"$DOCKER" build -q -t "$IMAGE_TAG" "${EXPARGS[@]}" --label "io.openit.inputs=$INPUTS" --build-arg COMMIT="$REVISION" --build-arg BOUNDARY_TAG="$ACTUAL" -f "$CTX/$DOCKERFILE" "${CTXARGS[@]}" "$CTX" >&2
+inputs_check "$IMAGE_TAG" "$INPUTS" || exit 1
 "$DOCKER" image inspect "$IMAGE_TAG" | "$PYTHON" -c '
 import json, sys
 from boundary_contracts import validator
