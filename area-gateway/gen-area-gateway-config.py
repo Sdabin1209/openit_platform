@@ -58,6 +58,23 @@ def ingress_routes(exposure, route_upstreams):
     return routes
 
 
+def gateway_failure_mappers():
+    """R3.2/R3.3: status, body and retry header come from one response schema."""
+    from boundary_contracts import load_schema, validator
+    contract = load_schema("GatewayErrorResponse")["properties"]
+    body_schema = load_schema("GatewayError")
+    body = {name: body_schema["properties"][name]["const"] for name in body_schema["required"]}
+    headers = {name: contract["headers"]["properties"][name]["const"] for name in contract["headers"]["required"]}
+    mappers = []
+    for status in contract["status"]["enum"]:
+        validator("GatewayErrorResponse").validate({"status": status, "headers": headers, "body": body})
+        mappers.append({"filter": {"status_code_filter": {"comparison": {"op": "EQ", "value": {"default_value": status, "runtime_key": f"gateway.local_reply.status.{status}"}}}},
+                        "body": {"inline_string": json.dumps(body, separators=(",", ":"))},
+                        "headers_to_add": [{"header": {"key": name, "value": value}, "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"} for name, value in headers.items()],
+                        "body_format_override": {"text_format_source": {"inline_string": "%LOCAL_REPLY_BODY%"}, "content_type": "application/json"}})
+    return mappers
+
+
 def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstreams=None, sds_path="/etc/envoy/sds.yaml", ingress=True):
     """route_upstreams: {경로 접두사: host:port}. 영역 안 컴포넌트가 여럿일 때 경로별 상류(가장 긴 접두사 우선). Exposure 스키마에는 경로별 상류 필드가 없어 배치가 준다(변경 요청 후보)."""
     route_upstreams = route_upstreams or {}
@@ -110,6 +127,17 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
                 {"name": "dfp", "lb_policy": "CLUSTER_PROVIDED", "connect_timeout": "5s", "cluster_type": {"name": "envoy.clusters.dynamic_forward_proxy", "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig", "dns_cache_config": dfp_cache}}}]},
     }
+    for listener in cfg["static_resources"]["listeners"]:
+        for chain in listener["filter_chains"]:
+            for entry in chain["filters"]:
+                manager = entry["typed_config"]
+                manager["local_reply_config"] = {"mappers": gateway_failure_mappers()}
+                manager["server_header_transformation"] = "PASS_THROUGH"
+                for virtual_host in manager["route_config"]["virtual_hosts"]:
+                    virtual_host["response_headers_to_remove"] = ["server"]
+                for http_filter in manager["http_filters"]:
+                    if http_filter["name"] == "envoy.filters.http.router":
+                        http_filter["typed_config"]["suppress_envoy_headers"] = True
     sds = {"resources": [{"@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret", "name": "tls", "tls_certificate": {"certificate_chain": {"filename": cert}, "private_key": {"filename": key}}}]}
     if not ingress:   # 나가는 쪽 전용: 인증서가 없는 들어오는 입구를 두지 않는다(쓰지 않는 입구 금지). 들어오는 listener·SDS 를 뺀다
         cfg["static_resources"]["listeners"] = [l for l in cfg["static_resources"]["listeners"] if l["name"] != "ingress"]

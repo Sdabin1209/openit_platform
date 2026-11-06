@@ -28,7 +28,17 @@ def start_gw(stack, name, exposure, alias=None, upstream="app:8080"):
     (d / f"{name}.json").write_text(json.dumps(exposure))
     stack["run"](f"{name}-{tag}", "--network-alias", alias or name, "--read-only", "--tmpfs", "/tmp", "-e", f"AREA_GATEWAY_UPSTREAM={upstream}",
                  "-v", f"{d}/{name}.json:/etc/openit/exposure.json:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
-    time.sleep(4)
+    # A running process may still be warming DNS/listeners. Wait for the image's
+    # declared health probe rather than assuming a fixed sleep means readiness.
+    deadline = time.monotonic() + 45  # Standalone fixture startup budget, not a runtime contract timeout.
+    while time.monotonic() < deadline:
+        state = sh("docker", "inspect", "--format", "{{.State.Running}}", f"{name}-{tag}").stdout.strip()
+        if state != "true":
+            break
+        if sh("docker", "exec", f"{name}-{tag}", "/usr/local/bin/area-gateway-entrypoint.sh", "health", check=False, timeout=8).returncode == 0:
+            return
+        time.sleep(0.2)
+    pytest.fail("gateway did not become ready:\n" + sh("docker", "logs", f"{name}-{tag}", check=False).stderr[-6000:])
 
 
 @pytest.fixture(scope="module")
@@ -59,7 +69,7 @@ def stack():
                     "h=http.server.ThreadingHTTPServer(('0.0.0.0',443),H); c=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain('/c.crt','/c.key'); h.socket=c.wrap_socket(h.socket,server_side=True); h.serve_forever()")
             run(f"{nm}-{tag}", "--network-alias", nm, "-v", f"{d}/{nm}.crt:/c.crt:ro", "-v", f"{d}/{nm}.key:/c.key:ro", util, "python", "-c", code)
         run(f"app-{tag}", "--network-alias", "app", util, "python", "-c",
-            "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()")
+            "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s):\n  if s.path=='/app-error':\n   s.send_response(503); s.send_header('Retry-After','17'); s.send_header('X-App','original'); s.end_headers(); s.wfile.write(b'app-original-body'); return\n  s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()")
         st = {"net": net, "d": d, "tag": tag, "run": run}
         start_gw(st, "gw", exposure)
         yield st
@@ -194,3 +204,30 @@ def test_public_denied_path_reaches_service_inside_area(stack):
     exposure = {"service": "dataset-store", "routes": [{"paths": ["/v1/datasets", "/v1/datasets/*"], "auth": {"kind": "denied"}}]}
     start_gw(stack, "internal-route", exposure)
     assert curl(stack["net"], "https://internal-route/v1/datasets") == "from-app"
+
+
+@pytest.mark.parametrize("upstream", ["missing-upstream:8080", "app:8081"])
+def test_ingress_upstream_failure_has_declared_gateway_error(stack, upstream):
+    exposure = {"service": "survey-service", "routes": [{"paths": ["/"], "auth": {"kind": "none"}}]}
+    start_gw(stack, "unavailable-" + upstream.split(":")[0], exposure, upstream=upstream)
+    gateway = "unavailable-" + upstream.split(":")[0]
+    response = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-skv", "--max-time", "8", "-i", f"https://{gateway}/", check=False)
+    assert response.returncode == 0, response.stderr
+    raw = response.stdout
+    headers, _, body = raw.replace("\r\n", "\n").partition("\n\n")
+    assert " 503 " in headers, {"response": raw, "gateway_logs": sh("docker", "logs", f"{gateway}-{stack['tag']}", check=False).stderr[-8000:]}
+    assert "retry-after: 5" in headers.lower()
+    from boundary_contracts import validator
+    normalized = dict(line.split(": ", 1) for line in headers.lower().splitlines()[1:] if ": " in line)
+    validator("GatewayErrorResponse").validate({"status": 503, "headers": normalized, "body": json.loads(body)})
+
+
+def test_application_503_body_and_retry_header_are_preserved(stack):
+    raw = curl(stack["net"], "-i", "https://gw/app-error")
+    headers, _, body = raw.replace("\r\n", "\n").partition("\n\n")
+    assert " 503 " in headers
+    assert body == "app-original-body"
+    assert "retry-after: 17" in headers.lower()
+    assert "x-app: original" in headers.lower()
+    assert "x-envoy-upstream-service-time" not in headers.lower()
+    assert "server:" not in headers.lower()
