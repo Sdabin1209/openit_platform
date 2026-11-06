@@ -188,3 +188,9 @@ def test_healthcheck_is_healthy_and_turns_unhealthy_when_the_gateway_stops_answe
     while time.time() < end and status() != "unhealthy": time.sleep(3)
     assert status() == "unhealthy"
     sh("docker", "unpause", c)
+
+
+def test_public_denied_path_reaches_service_inside_area(stack):
+    exposure = {"service": "dataset-store", "routes": [{"paths": ["/v1/datasets", "/v1/datasets/*"], "auth": {"kind": "denied"}}]}
+    start_gw(stack, "internal-route", exposure)
+    assert curl(stack["net"], "https://internal-route/v1/datasets") == "from-app"

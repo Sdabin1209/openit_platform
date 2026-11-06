@@ -48,8 +48,8 @@ def ingress_routes(exposure, route_upstreams):
         routes.append({"match": {**match, "headers": match.get("headers", []) + [{"name": "content-length", "range_match": {"start": limit + 1, "end": 2**62}}]}, **too_large(limit)})
         routes.append({"match": match, "route": {"cluster": cluster, "timeout": "0s", "idle_timeout": "120s"}})
     for r in exposure.get("routes", []):
-        if (r.get("auth") or {}).get("kind") == "denied":
-            continue
+        # auth is the platform public-entry policy. Peer requests bypass that entry
+        # and must reach the receiving service's token validator (R1.1/R3.23).
         limit = r.get("max_body_bytes", DEFAULT_MAX_BODY)
         cluster = "port%d" % r["upstream_port"] if r.get("upstream_port") else "area"
         hdr = [{"name": ":method", "string_match": {"safe_regex": {"regex": "^(%s)$" % "|".join(r["methods"])}}}] if r.get("methods") else []
