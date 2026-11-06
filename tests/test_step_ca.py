@@ -186,3 +186,16 @@ def test_mutation_in_place_update_with_a_later_mode_fix_makes_readers_fail(w):
     w.wait(lambda: w.inspect("serial"), 30, "첫 발급")
     n, f = reader(w, 45)
     assert f > 0, f"변이인데 읽기 {n}번이 모두 성공했다(시험이 결함을 잡지 못한다)"
+
+
+def test_dns_subjects_pass_the_built_image_env_contract(w):
+    for role, key, value in [("cert", "STEP_CERT_NAME", "host.docker.internal"),
+                             ("token", "STEP_TOKEN_NAMES", "host.docker.internal release-gate")]:
+        result = sh("docker", "run", "--rm", "--read-only", "--entrypoint", "/usr/local/bin/envcheck",
+                    "-e", "STEP_ROLE=" + role, "-e", key + "=" + value,
+                    IMAGE, "/etc/openit/schemas/StepCaEnv.schema.json", "--no-export", check=False)
+        assert result.returncode == 0, result.stderr
+    result = sh("docker", "run", "--rm", "--read-only", "--entrypoint", "/usr/local/bin/envcheck",
+                "-e", "STEP_ROLE=cert", "-e", "STEP_CERT_NAME=" + "a" * 64,
+                IMAGE, "/etc/openit/schemas/StepCaEnv.schema.json", "--no-export", check=False)
+    assert result.returncode == 64
