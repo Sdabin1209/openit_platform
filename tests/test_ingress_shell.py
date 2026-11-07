@@ -32,3 +32,13 @@ def test_device_mtls_pass():
 def test_device_mtls_mutation_verification_off_is_caught():
     r = run("test-device-mtls.sh", MTLS_MUTATE="1")
     assert r.returncode == 1 and "FAIL" in r.stdout, r.stdout[-1500:] + r.stderr[-500:]
+
+
+def test_public_device_config_passes_through():
+    r = run("test-device-config.sh")
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-800:]
+
+
+def test_public_device_config_forced_block_response_is_caught():
+    r = run("test-device-config.sh", CONFIG_FORCE_404_MUTATE="1")
+    assert r.returncode == 1 and "FAIL" in r.stdout, r.stdout[-2000:] + r.stderr[-800:]

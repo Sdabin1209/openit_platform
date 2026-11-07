@@ -133,9 +133,29 @@ def test_gate_judging_and_rules_and_alertmanager(mon):
         raise AssertionError("GateJudgingFailuresCritical 이 Alertmanager 에 닿지 않았다")
 
 
+def assert_node_filesystem_present(mon):
+    # The configured filesystem collector exports this metric on the real
+    # read-only /host mount, including this WSL/Docker environment.
+    assert mon.val('node_filesystem_size_bytes{job="node"}') is not None, "filesystem metric missing"
+
+
 def test_node_exporter_role(mon):
-    assert mon.val('node_filesystem_size_bytes{job="node"}') is not None or True
     mon.wait('up{job="node"}', 1)
+    assert_node_filesystem_present(mon)
+
+
+def test_node_filesystem_assertion_catches_stopped_exporter_and_recovers(mon):
+    mon.wait('up{job="node"}', 1)
+    assert_node_filesystem_present(mon)
+    try:
+        sh("docker", "stop", "--time", "3", mon.node)
+        mon.wait('up{job="node"}', 0)
+        with pytest.raises(AssertionError, match="filesystem metric missing"):
+            assert_node_filesystem_present(mon)
+    finally:
+        sh("docker", "start", mon.node)
+    mon.wait('up{job="node"}', 1)
+    assert_node_filesystem_present(mon)
 
 
 def test_healthchecks_of_every_role_and_mutation(mon):
