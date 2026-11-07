@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeviceAuthRequest",
+  "description": "영역 안 Caddy→기기 인증 확인기 입력. TLS 속성에서 얻은 CN과 10진 일련번호이며 클라이언트가 보낸 헤더는 Caddy가 덮어쓴다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["device_id", "serial_decimal"],
+  "properties": {
+    "device_id": {"x-contract": "DeviceAllowlist#/properties/devices/items/properties/device_id"},
+    "serial_decimal": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,47}$(?![\\s\\S])",
+      "description": "Caddy client.serial의 10진수. DER 20옥텟 양수는 최대 159비트이므로 48자리 이하. 16진수 정규화 뒤 DeviceAllowlist의 serial 규칙도 적용한다."
+    }
+  }
+}

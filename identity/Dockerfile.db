@@ -11,11 +11,11 @@ ARG COMMIT=unknown
 ARG BOUNDARY_TAG=unknown
 ARG JOBS_JSON
 COPY --from=envcheck /envcheck /usr/local/bin/envcheck
-COPY --from=boundary_contracts schemas/AreaDatabaseEnv.schema.json /etc/openit/schemas/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 # 데이터 주인 백업·복구 잡(RUNTIME R10.1): 이미지가 pg_dump·pg_restore 와 restic 을 갖고 라벨 io.openit.jobs 로 잡을 낸다(정본 identity/jobs-identity-db.json)
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY --from=common --chmod=755 backup-job.sh /usr/local/bin/platform-backup-job
-COPY --from=boundary_contracts schemas/CommonEnv.schema.json /etc/openit/schemas/
 COPY db/database.json /etc/openit/database.json
 COPY --chmod=755 db/entrypoint.sh /usr/local/bin/identity-db-entrypoint.sh
 COPY --chmod=755 db/10-accounts.sh /docker-entrypoint-initdb.d/10-accounts.sh

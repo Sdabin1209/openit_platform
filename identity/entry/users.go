@@ -14,9 +14,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"time"
+
+	"openit/platform/common/envcheck"
 )
 
 type userSpec struct {
@@ -80,22 +81,18 @@ func usersJob(args []string) {
 	var cfg struct {
 		Users []userSpec `json:"users"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil || len(cfg.Users) == 0 {
-		die(64, "설정 파일이 IdentityUsersConfig 모양이 아니다")
+	// 계약 전체를 검증한 뒤에만 인증 요청·사용자 변경을 시작한다. 수기 부분 검사는 그룹·email·필수 조건을 놓친다.
+	if bad := envcheck.ValidateJSON("/etc/openit/schemas/IdentityUsersConfig.schema.json", raw); len(bad) > 0 {
+		die(64, "IdentityUsersConfig 위반: %s", strings.Join(bad, "; "))
 	}
-	nameRE, abs := regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,62}$`), regexp.MustCompile(`^/`)
-	for _, u := range cfg.Users {
-		if !nameRE.MatchString(u.Username) || !abs.MatchString(u.PasswordFile) {
-			die(64, "사용자 항목이 IdentityUsersConfig 를 어겼다(username·password_file)")
-		}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		die(64, "사용자 설정 JSON 형식 오류")
 	}
-	// 입력은 label 의 secret_files/env 로 deploy 가 준 것만 쓴다(IdentityEnv 의 이름)
-	caPath, adminFile := os.Getenv("IDENTITY_ROOT_CA"), os.Getenv("IDENTITY_ADMIN_PASSWORD_FILE")
-	if caPath == "" || adminFile == "" {
-		die(64, "IDENTITY_ROOT_CA, IDENTITY_ADMIN_PASSWORD_FILE 이 필요하다")
+	env, bad := envcheck.Load("/etc/openit/schemas/IdentityUsersEnv.schema.json")
+	if len(bad) > 0 {
+		die(64, "IdentityUsersEnv 위반: %s", strings.Join(bad, "; "))
 	}
+	caPath, adminFile := env["IDENTITY_ROOT_CA"], env["IDENTITY_ADMIN_PASSWORD_FILE"]
 	pool := x509.NewCertPool()
 	pem, err := os.ReadFile(caPath)
 	if err != nil || !pool.AppendCertsFromPEM(pem) {

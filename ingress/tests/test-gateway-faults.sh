@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 게이트웨이 장애·중계 단독 시험(RUNTIME R2.1·R3.1·R3.2·R3.3·R3.5·R3.6·R4.1, Docker 필요). 사용: bash ingress/tests/test-gateway-faults.sh
-# 지금 빌드한 공개 입구 이미지를 띄우고 상류(survey-service)를 제어되는 가짜(gateway-oidc/fault-upstream.py, TLS 앞단 포함)로 둔다. 환자 경로(POST /v1/sessions, 기기 토큰 = tokens/devices/auth-1)로 부른다.
+# 지금 빌드한 공개 입구 이미지를 띄우고 상류(survey-service)를 제어되는 가짜(gateway-oidc/fault-upstream.py, TLS 앞단 포함)로 둔다. 환자 경로(POST /v1/sessions, mTLS 인증서 = fault-kiosk)로 부른다.
 # 모든 단언은 상태 코드 + 본문 + 필요한 머리글을 함께 본다. 값(토큰)은 출력하지 않는다. 504 시험은 상류 한도(55초)를 실제로 기다려 약 90초 걸린다.
 # 변이(단언이 실제로 잡는지): FAULTS_MUTATE=503 연결 거부 응답을 200 으로, FAULTS_MUTATE=413 본문 상한을 10배로 푼다(둘 다 이 시험이 실패해야 한다). FAULTS_QUICK=1 은 느린 504 시험을 건너뛴다(변이 실행용).
 set -uo pipefail
@@ -20,14 +20,21 @@ if [ -n "${FAULTS_MUTATE:-}" ]; then
   cmp -s "$T/Caddyfile.mut" <(docker run --rm --entrypoint cat "$ING" /etc/caddy/Caddyfile) && { echo "변이가 설정을 바꾸지 못했다"; exit 2; }
   CF_FILE=$T/Caddyfile.mut
 fi
-DEVTOK=$(cat "$T/tokens/devices/auth-1")
+DEVICE_PKI_DIR="$T/dpki" bash "$ROOT/ingress/scripts/device-pki.sh" issue fault-kiosk >/dev/null 2>&1 || exit 1
+"$PY" - "$T" <<'POLICY'
+import json, pathlib, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+serial = subprocess.check_output(["openssl", "x509", "-in", str(root / "dpki/fault-kiosk.crt"), "-noout", "-serial"], text=True).strip().split("=", 1)[1]
+(root / "devices/allowlist.json").write_text(json.dumps({"schema_version": 1, "devices": [{"device_id": "fault-kiosk", "serials": [format(int(serial, 16), "x")]}]}))
+POLICY
+curl() { command curl --cert "$T/dpki/fault-kiosk.crt" --key "$T/dpki/fault-kiosk.key" "$@"; }
 start_upstream "$ROOT/ingress/tests/gateway-oidc/fault-upstream.py" survey-service
 if [ -n "$CF_FILE" ]; then start_gateway $CN -v "$CF_FILE:/etc/caddy/Caddyfile:ro"; else start_gateway $CN; fi
 CP=$(wait_port $CN) || { echo "게이트웨이가 뜨지 않았다"; docker logs $CN 2>&1 | tail -n 5; exit 1; }
 use_name_resolution $CP
 URL="$GW_URL/v1/sessions"
 # req <fault> [추가 curl 인자...]: 상태 코드는 stdout, 머리글은 $T/h, 본문은 $T/b
-req() { local f=$1; shift; curl -sk -m 100 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H "Authorization: Bearer $DEVTOK" -H "X-Fault: $f" -H 'Content-Type: application/json' -d '{"k":1}' "$@" "$URL"; }
+req() { local f=$1; shift; curl -sk -m 100 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H "X-Fault: $f" -H 'Content-Type: application/json' -d '{"k":1}' "$@" "$URL"; }
 hdr() { grep -i "^$1:" "$T/h" | head -n 1 | sed 's/^[^:]*: *//' | tr -d '\r'; }
 # ---- R2.1: 앱이 낸 4xx·5xx BoundaryError 와 413 은 상태·본문·앱이 정한 머리글 그대로 ----
 c=$(req err403); chk "R2.1 앱 403 BoundaryError: 상태·본문·X-Test-Custom 그대로" bash -c '[ "$1" = 403 ] && grep -q "\"code\": \"PERMISSION_DENIED\"" "$2/b" && grep -qi "^x-test-custom: v-403" "$2/h"' _ "$c" "$T"
@@ -40,9 +47,9 @@ c=$(req app-headers); chk "R2.1 앱이 정한 Cache-Control(max-age=60)·X-Frame
 chk "R2.1 앱이 안 정한 보안 머리글은 게이트웨이가 더한다(X-Content-Type-Options: nosniff, Strict-Transport-Security)" bash -c 'grep -qi "^x-content-type-options: nosniff" "$1/h" && grep -qi "^strict-transport-security:" "$1/h"' _ "$T"
 c=$(req ok); chk "R2.1 앱이 Cache-Control 을 안 정했으면 게이트웨이의 no-store 가 붙는다" bash -c 'grep -qi "^cache-control: no-store" "$1/h"' _ "$T"
 # ---- R3.5: 본문 상한 초과 -> 413 + BoundaryError(INVALID_RECORD), 503 아님 ----
-c=$(head -c 9437184 /dev/zero | curl -sk -m 60 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H "Authorization: Bearer $DEVTOK" -H 'Content-Type: text/plain' --data-binary @- "$URL")
+c=$(head -c 9437184 /dev/zero | curl -sk -m 60 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H 'Content-Type: text/plain' --data-binary @- "$URL")
 chk "R3.5 Content-Length 가 8MiB 초과: 413 + INVALID_RECORD(details.max_body_bytes) + application/json" bash -c '[ "$1" = 413 ] && grep -q "INVALID_RECORD" "$2/b" && grep -q "max_body_bytes" "$2/b" && grep -qi "^content-type: application/json" "$2/h"' _ "$c" "$T"
-c=$(head -c 9437184 /dev/zero | curl -sk -m 60 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H "Authorization: Bearer $DEVTOK" -H 'Content-Type: text/plain' -H 'Transfer-Encoding: chunked' --data-binary @- "$URL")
+c=$(head -c 9437184 /dev/zero | curl -sk -m 60 -o "$T/b" -D "$T/h" -w '%{http_code}' -X POST -H 'Content-Type: text/plain' -H 'Transfer-Encoding: chunked' --data-binary @- "$URL")
 chk "R3.5 전송 중(chunked)에 8MiB 초과: 413 (503 아님)" bash -c '[ "$1" = 413 ]' _ "$c"
 # ---- R3.6: 요청 줄·헤더가 너무 큼 -> 414·431 (본문은 전송 계층이 정한다: CONVENTIONS 92행) ----
 c=$(python3 "$ROOT/ingress/tests/raw_big.py" "$CP" header); chk "R3.6 헤더 1.2MB: 431 (현재 값 $c)" bash -c '[ "$1" = 431 ]' _ "$c"

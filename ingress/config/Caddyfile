@@ -24,10 +24,8 @@
 # 사람 인증(U82, head ADR 0014, deploy ADR 0057): 직원·운영자·승인자·검토자·저자·의사·admin 을 OIDC(Keycloak + oauth2-proxy)로 인증한다. 정적 계정 파일·basic_auth 는 없다.
 # config/gateway-auth.caddy 가 두 조각을 정의한다: (authenticate) = oauth2-proxy 에 묻는 forward_auth, (role_matchers) = 그룹 -> 역할. 이 Caddyfile 의 나머지는 두 조각의 이름만 안다.
 import /etc/caddy/gateway-auth.caddy
-# 키오스크 기기 인증(D85 F절): (kiosk_devices) 가 @device_ok 를 정의한다. 기기 토큰 목록은 시작할 때 INGRESS_DEVICE_TOKENS_DIR 의 기기별 파일에서 이미지가 만든다(/tmp/openit/devices.caddy).
-import /tmp/openit/devices.caddy
-# 키오스크 기기 인증서(mTLS, PUBLIC_API F절 기본 기기 인증, ADR 0040): 게이트웨이가 클라이언트 인증서를 검증하고 주체 CN 을 X-Openit-Device 로 서비스에 넘긴다. 신뢰할 CA 는 INGRESS_DEVICE_CA_FILE(계약 PublicIngressEnv, 필수) 한 개이고,
-# (device_client_auth) 조각은 시작할 때 이미지가 그 파일로 만든다(/tmp/openit/device-tls.caddy). 인증서를 안 낸 클라이언트는 통과해 F-1 기기 토큰(INGRESS_DEVICE_TOKENS_DIR)·계정 인증으로 간다.
+# 기기 인증은 신뢰 CA의 인증서와 요청별 DeviceAllowlist 대조뿐이다(PUBLIC_API F, D136).
+# 인증서가 없는 직원 브라우저는 계정 인증으로 간다. 틀린 인증서는 TLS에서 거부한다.
 import /tmp/openit/device-tls.caddy
 # 공개 입구 인증서 출처(ADR 0060): GATEWAY_TLS_MODE 가 internal(기본)·files·acme 중 하나. 파일 하나가 (gateway_tls) 를 정의한다.
 import /etc/caddy/gateway-tls/{$GATEWAY_TLS_MODE:internal}.caddy
@@ -44,7 +42,6 @@ http://:8080 {
 # HTTPS 사이트(컨테이너 8443). 사이트 이름 목록은 GATEWAY_HOSTS(기본 localhost, 127.0.0.1). 운영에서는 설치처의 내부 도메인을 적는다(예: kiosk.example.internal:8443).
 {$GATEWAY_SITES}, {$GATEWAY_PROBE_SITE} {   # 뒤의 사이트 이름은 같은 서버의 감시가 부르는 이름이다(GATEWAY_PROBE_SITE, ADR 0060)
 	import gateway_tls   # 인증서 출처는 GATEWAY_TLS_MODE(internal|files|acme)가 고른다: config/gateway-tls/<모드>.caddy. 이 파일을 손으로 고치지 않는다
-	import kiosk_devices
 	# 기기 ID = 검증된 클라이언트 인증서 주체(RFC 2253 문자열, 예: CN=kiosk-1,O=...)의 CN. 형식 ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ 를 만족할 때만 기기로 본다(아니면 기기 인증 실패).
 	# Caddy 에는 CN 만 내는 플레이스홀더가 없어, 주체 전체를 내부 헤더 X-Openit-Dn 에 항상 덮어쓰고(클라이언트가 보낸 값은 이 줄이 대체한다: 접두어 dn= 때문에 값이 비어 지워질 일이 없다)
 	# header_regexp 의 이름 있는 캡처(re.devcn.1)로 CN 을 꺼낸다. X-Openit-Dn 은 서비스로 가기 전에 지운다. 인증서 자체의 신뢰 검증은 TLS 핸드셰이크(client_auth)가 한다.
@@ -110,6 +107,9 @@ http://:8080 {
 	# /readyz: 환자 경로의 survey-service /readyz 를 반영한다(FAULT_POLICY 5). 2xx 면 {"status":"ok"} 200, 아니면 서비스의 상태 코드를 그대로 두되 본문은 {"status":"not-ready"} 만(서비스의 내부 문제 목록은 밖에 내지 않는다).
 	# 상류에 닿지 못하면 아래 handle_errors 가 503/504 와 UPSTREAM_UNAVAILABLE 을 준다. /healthz 는 상류와 무관한 정적 200.
 	handle /readyz {
+		forward_auth unix//tmp/openit/device-auth.sock {
+			uri /readyz?
+		}
 		reverse_proxy https://survey-service {
 			header_up X-Forwarded-Host {http.request.hostport}   # 왜: 사이드카가 X-Forwarded-* 를 이웃(사설망)에게서 그대로 받는다(trusted_proxies). 원래 Host 를 앱이 알아야 하는 서비스(Keycloak)용
 			header_up Host {upstream_hostport}   # 왜: 상류 사이드카는 서비스 이름 사이트로 TLS 를 끝낸다(Host 로 사이트를 고른다). 원래 Host 는 X-Forwarded-Host 로 남는다

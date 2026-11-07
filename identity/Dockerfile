@@ -14,7 +14,8 @@ ARG EXPOSURE_JSON
 ARG JOBS_JSON
 RUN /opt/keycloak/bin/kc.sh build --db=postgres --health-enabled=true --http-relative-path=/auth
 COPY --from=entry /identity-entry /usr/local/bin/identity-entry
-COPY --from=boundary_contracts schemas/IdentityEnv.schema.json /etc/openit/schemas/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 # io.openit.exposure: 이 서비스의 노출 선언(계약 Exposure, 정본 identity/exposure-identity.json). build-image.sh 가 계약 스키마로 검증해 build arg 로 준다
 LABEL io.openit.jobs="${JOBS_JSON}" io.openit.exposure="${EXPOSURE_JSON}" io.openit.service="identity" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
 # 건강 확인(Docker 표준 HEALTHCHECK): 관리 포트의 준비 경로. 첫 기동은 realm 가져오기로 오래 걸린다(시작 유예 90초는 측정하지 않은 값)

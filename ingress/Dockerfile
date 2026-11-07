@@ -1,5 +1,5 @@
 # platform 공개 입구(사람·기기의 게이트웨이, ADR 0002): Caddy(속도 제한 모듈 포함 빌드) + 이 영역의 설정. 경로 표는 시작할 때 마운트된 영역 Exposure 선언들에서 생성한다(S9).
-# 입력은 계약 PublicIngressEnv(환경 변수의 이름·기본값, 기동 때 envcheck 가 검증: 위반이면 종료 64)와 마운트: INGRESS_EXPOSURES(영역 Exposure 선언 폴더, 위반·중복 65), INGRESS_DEVICE_TOKENS_DIR(기기마다 파일 하나),
+# 입력은 계약 PublicIngressEnv(환경 변수의 이름·기본값, 기동 때 envcheck 가 검증: 위반이면 종료 64)와 마운트: INGRESS_EXPOSURES(영역 Exposure 선언 폴더, 위반·중복 65), INGRESS_DEVICE_ALLOWLIST_FILE(DeviceAllowlist JSON),
 #   INGRESS_UPSTREAM_TOKENS_DIR(Exposure.upstream_token 이름마다 파일 하나), INGRESS_ROOT_CA, files 모드는 INGRESS_TLS_DIR. 호스트 이름 목록·스키마 버전 같은 파생 값은 이미지가 만든다. /tmp,/data,/config 는 tmpfs.
 ARG RESTIC_IMAGE=docker.io/restic/restic@sha256:4cf4a61ef9786f4de53e9de8c8f5c040f33830eb0a10bf3d614410ee2fcb6120
 ARG CADDY_BUILDER=docker.io/library/caddy:2.11.7-builder
@@ -27,9 +27,10 @@ COPY --from=envcheck /envcheck /usr/local/bin/envcheck
 # 데이터 주인 백업·복구 잡(gateway-data = /data): restic 은 잠금 digest 의 공식 이미지에서, 잡 본체는 common/backup-job.sh
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY --from=common --chmod=755 backup-job.sh /usr/local/bin/platform-backup-job
-COPY --from=boundary_contracts schemas/CommonEnv.schema.json /etc/openit/schemas/
-COPY --from=boundary_contracts schemas/PublicIngressEnv.schema.json /etc/openit/schemas/
-COPY gen-ingress-routes.py gen-devices.py gen-host-names.py /usr/local/bin/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
+COPY gen-ingress-routes.py device-auth.py gen-host-names.py /usr/local/bin/
+COPY schemas/ /usr/local/bin/schemas/
 COPY entrypoint.sh /usr/local/bin/ingress-entrypoint.sh
 # 인증 없는 요청의 기대 응답 점검(공개 입구 동작의 정본: 선언에서 기대 행을 만든다). 배포는 띄운 스택에 docker run --entrypoint selfcheck-unauth 로 실행만 한다
 COPY selfcheck-unauth.py /usr/local/bin/selfcheck-unauth.py

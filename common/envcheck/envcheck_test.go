@@ -89,6 +89,25 @@ func TestUnpackagedReferenceFailsWithoutNetwork(t *testing.T) {
 	}
 }
 
+func TestPackagedRelativeReferenceWithPublicRootID(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "OwnerEnv.schema.json")
+	if err := os.WriteFile(path, []byte(`{"$id":"https://openit.example/schemas/OwnerEnv.schema.json","properties":{"ENV_TEST_VALUE":{"$ref":"_common.schema.json#/$defs/Value"}},"required":["ENV_TEST_VALUE"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "_common.schema.json"), []byte(`{"$id":"_common.schema.json","$defs":{"Value":{"type":"string","minLength":2}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENV_TEST_VALUE", "valid")
+	if _, bad := Load(path); len(bad) > 0 {
+		t.Fatalf("packaged reference was not resolved: %v", bad)
+	}
+	t.Setenv("ENV_TEST_VALUE", "x")
+	if _, bad := Load(path); len(bad) == 0 {
+		t.Fatal("referenced constraint was ignored")
+	}
+}
+
 func TestConditionalPresenceDoesNotInventAnAbsentProperty(t *testing.T) {
 	path := fixture(t, `{"properties":{"ENV_TEST_MODE":{"type":"string"},"ENV_TEST_OTHER":{"type":"string"}},"allOf":[{"if":{"properties":{"ENV_TEST_MODE":{"const":"yes"}},"required":["ENV_TEST_MODE"]},"then":{"required":["ENV_TEST_OTHER"]}}]}`)
 	t.Setenv("ENV_TEST_MODE", "temporary")

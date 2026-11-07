@@ -3,13 +3,14 @@
 stack_init() { # stack_init <PREFIX> <PKI에 넣을 서비스 이름...>
   PREFIX=$1; shift; ID=$$; T=$(mktemp -d); chmod 755 "$T"; export SECRETS_DIR=$T
   ING=platform-ingress:$PREFIX-$ID; NET=$PREFIX-net-$ID; DATAVOL=$PREFIX-data-$ID; CN=$PREFIX-gw-$ID; CU=$PREFIX-up-$ID; PKI=$T/pki; mkdir -p "$PKI"
-  gateway_test_pki "$PKI" "$@" || { echo "시험 PKI 를 만들지 못했다"; exit 1; }
+  gateway_test_pki "$PKI" localhost "$@" || { echo "시험 PKI 를 만들지 못했다"; exit 1; }
   GWI=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/^UTIL_IMAGE=//p' "$ROOT/locks/images.lock")
   BSRC=$(bash "$ROOT/scripts/fetch-boundary-src.sh" "$T/boundary-src") || exit 1
   printf '{"source_dir":"%s","revision":"abcdef1","versions":{"boundary":"v%s"},"variant":"public-ingress","dependency_sources":{"boundary":"%s"},"image_tag":"%s"}' "$ROOT" "$("$ROOT/.venv/bin/python" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')" "$BSRC" "$ING" > "$T/build-req.json"
   bash "$ROOT/scripts/build-image.sh" "$T/build-req.json" >/dev/null 2>"$T/build.err" || { tail -3 "$T/build.err"; echo "공개 입구 이미지를 만들지 못했다"; exit 1; }
   bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" >/dev/null 2>&1 || { echo "시험 비밀을 만들지 못했다"; exit 1; }
   DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1 || { echo "기기 CA 를 만들지 못했다"; exit 1; }
+  mkdir -p "$T/devices"; printf '{"schema_version":1,"devices":[]}\n' > "$T/devices/allowlist.json"; chmod 755 "$T/devices"; chmod 644 "$T/devices/allowlist.json"
   DEVCA=$T/dpki/ca.crt   # 계약 PublicIngressEnv.INGRESS_DEVICE_CA_FILE 로 마운트한다(필수)
   docker network create $NET >/dev/null
 }
@@ -26,7 +27,7 @@ start_upstream() { # start_upstream <상류 파이썬 파일> <서비스 이름 
 start_gateway() { # start_gateway <이름> [docker 인자...]: 공개 입구(internal 모드) 한 개. 호스트 포트는 Docker 가 배정한다
   local name=$1; shift
   docker run -d --name "$name" --network $NET $(gateway_test_mounts "$PKI") --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 --tmpfs /etc/openit/root-out:uid=10001,gid=10001,mode=755 \
-    -e "GATEWAY_HOSTS=localhost:8443" -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$@" "$ING" >/dev/null
+    -e "GATEWAY_HOSTS=localhost:8443" -e INGRESS_DEVICE_ALLOWLIST_FILE=/etc/openit/devices/allowlist.json -v "$T/devices:/etc/openit/devices:ro" -v "${DEVCA_MOUNT:-$DEVCA}:/etc/openit/device-ca.pem:ro" -v "$ROOT/ingress/tests/exposures:/etc/openit/exposures:ro" -v "$T/tokens:/run/secrets:ro" -p 127.0.0.1::8443 "$@" "$ING" >/dev/null
 }
 wait_port() { # wait_port <컨테이너>: 호스트 포트를 stdout 으로(준비 확인: /healthz 가 응답할 때까지)
   local p="" i; for i in $(seq 1 60); do p=$(docker port "$1" 8443/tcp 2>/dev/null | head -1 | sed 's/.*://'); [ -n "$p" ] && curl -sk -o /dev/null -m 2 --resolve "localhost:$p:127.0.0.1" "https://localhost:$p/healthz" && { echo "$p"; return 0; }; sleep 0.5; done; return 1

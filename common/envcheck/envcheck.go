@@ -6,6 +6,7 @@ package envcheck
 import (
 	"bytes"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,7 +76,7 @@ func problems(e *jsonschema.ValidationError, result map[string]bool) {
 
 // Load uses the full Draft 2020-12 validator, including compositions, formats,
 // propertyNames and chained references. Unknown resources fail without network.
-func Load(schemaPath string) (map[string]string, []string) {
+func compileFile(schemaPath string) (*jsonschema.Schema, []string) {
 	absolute, err := filepath.Abs(schemaPath)
 	if err != nil {
 		return nil, []string{"스키마 경로 오류"}
@@ -111,8 +112,25 @@ func Load(schemaPath string) (map[string]string, []string) {
 		if err != nil {
 			return nil, []string{"패키지 스키마 형식 오류"}
 		}
+		// Match the owner SDK's packaged-resource resolution: relative refs
+		// resolve beside this file, even when its published ID is HTTPS.
+		location := &url.URL{Scheme: "file", Path: filepath.ToSlash(path)}
+		alias := ""
+		if object := asMap(doc); object != nil {
+			if id, ok := object["$id"].(string); ok {
+				if reference, parseErr := url.Parse(id); parseErr == nil {
+					alias = location.ResolveReference(reference).String()
+				}
+			}
+			object["$id"] = location.String()
+		}
 		if err = compiler.AddResource(path, doc); err != nil {
 			return nil, []string{"패키지 스키마 등록 오류"}
+		}
+		if alias != "" && alias != location.String() {
+			if err = compiler.AddResource(alias, doc); err != nil {
+				return nil, []string{"패키지 스키마 ID 등록 오류"}
+			}
 		}
 	}
 	// A caller may use another filename, for example a temporary contract fixture.
@@ -123,6 +141,7 @@ func Load(schemaPath string) (map[string]string, []string) {
 		}
 	}
 	if !found {
+		root["$id"] = (&url.URL{Scheme: "file", Path: filepath.ToSlash(absolute)}).String()
 		if err = compiler.AddResource(absolute, document); err != nil {
 			return nil, []string{"스키마 등록 오류"}
 		}
@@ -130,6 +149,43 @@ func Load(schemaPath string) (map[string]string, []string) {
 	schema, err := compiler.Compile(absolute)
 	if err != nil {
 		return nil, []string{"스키마를 완전히 해석하지 못했다"}
+	}
+	return schema, nil
+}
+
+// ValidateJSON validates a record before a producer or consumer causes effects.
+// Diagnostics contain schema paths and rule names, never input values.
+func ValidateJSON(schemaPath string, data []byte) []string {
+	schema, bad := compileFile(schemaPath)
+	if len(bad) > 0 {
+		return bad
+	}
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return []string{"JSON 형식 오류"}
+	}
+	if err := schema.Validate(instance); err != nil {
+		var validation *jsonschema.ValidationError
+		if !errors.As(err, &validation) {
+			return []string{"레코드 검증 실패"}
+		}
+		unique := map[string]bool{}
+		problems(validation, unique)
+		bad := make([]string, 0, len(unique))
+		for item := range unique {
+			bad = append(bad, item)
+		}
+		sort.Strings(bad)
+		return bad
+	}
+	return nil
+}
+
+// Load validates environment values and applies declared defaults.
+func Load(schemaPath string) (map[string]string, []string) {
+	schema, bad := compileFile(schemaPath)
+	if len(bad) > 0 {
+		return nil, bad
 	}
 	instance := map[string]any{}
 	for _, item := range os.Environ() {
@@ -151,7 +207,7 @@ func Load(schemaPath string) (map[string]string, []string) {
 			instance[name] = text
 		}
 	}
-	if err = schema.Validate(instance); err != nil {
+	if err := schema.Validate(instance); err != nil {
 		var validation *jsonschema.ValidationError
 		if !errors.As(err, &validation) {
 			return nil, []string{"환경 검증 실패"}

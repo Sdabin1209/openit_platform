@@ -1,6 +1,6 @@
 """D22 스모크: 변형마다 빌드 -> 실행 -> 상태 확인 -> 비루트·라벨(io.openit.*) 확인. 고정 포트 없음(같은 docker 네트워크의 curl 컨테이너로 확인), 컨테이너·네트워크 이름에 platform 과 임의 접미사,
 시험이 만든 것만 지운다. 실패하면 컨테이너 로그를 $KEEP_DIR(기본 /tmp/platform-smoke-<접미사>)에 남긴 뒤 지운다. 종료 코드 0 = 전부 통과. 사용: bash scripts/smoke.sh
-identity(Keycloak optimized)는 영역 이미지가 아니라 io.openit.* 라벨이 없다: identity/tests/test-idp-smoke.sh 가 실제로 띄워 확인한다(여기서 중복하지 않는다)."""
+identity(Keycloak optimized)는 동일 영역 이미지이며 실제 기동·로그인은 identity/tests/test-idp-smoke.sh 가 실제로 띄워 확인한다(여기서 중복하지 않는다)."""
 import json, os, pathlib, subprocess, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
@@ -83,8 +83,11 @@ def main():
         dca = st.d / "dpki" / "ca.crt"; subprocess.run(["bash", str(ROOT / "ingress/scripts/device-pki.sh"), "init"], env=dict(os.environ, DEVICE_PKI_DIR=str(st.d / "dpki")), capture_output=True, check=True)   # 기기 CA(필수 입력)
         mounts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && gateway_test_pki {pki} survey-service identity identity-proxy && gateway_test_mounts {pki} && echo $SECRETS_GID").stdout.split()
         gid = mounts[-1]; mounts = mounts[:-1]
+        allowlist = st.d / "devices"
+        allowlist.mkdir(); (allowlist / "allowlist.json").write_text('{"schema_version":1,"devices":[]}\n')
+        allowlist.chmod(0o755); (allowlist / "allowlist.json").chmod(0o644)
         ing = st.run("public-ingress", "--network-alias", "ingress", "--user", "10001:10001", "--group-add", gid, *HARD, "--tmpfs", "/tmp:uid=10001,gid=10001", "--tmpfs", "/data:uid=10001,gid=10001", "--tmpfs", "/config:uid=10001,gid=10001", "--tmpfs", "/etc/openit/root-out:uid=10001,gid=10001,mode=755",
-               *mounts, "-e", "GATEWAY_HOSTS=localhost:8443", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/tokens:/run/secrets:ro", "-v", f"{dca}:/etc/openit/device-ca.pem:ro", t)
+               *mounts, "-e", "GATEWAY_HOSTS=localhost:8443", "-e", "INGRESS_DEVICE_ALLOWLIST_FILE=/etc/openit/devices/allowlist.json", "-v", f"{allowlist}:/etc/openit/devices:ro", "-v", f"{ROOT}/ingress/tests/exposures:/etc/openit/exposures:ro", "-v", f"{sec}/tokens:/run/secrets:ro", "-v", f"{dca}:/etc/openit/device-ca.pem:ro", t)
         # 준비 확인: 응답이 올 때까지(000 = 연결 실패는 아직 준비 전). 튜플은 늘 참이라 wait 가 첫 시도에서 끝나던 결함을 고쳤다
         got = wait(lambda: (lambda r: r if r[0] != "000" else None)(http_in(ing, "http://127.0.0.1:8080/healthz")), "ingress")
         check("public-ingress: /healthz 200 + {\"status\":\"ok\"}", got is not None and got[0] == "200" and '"ok"' in got[1], got)

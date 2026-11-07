@@ -26,7 +26,8 @@ RUN apt-get -o APT::Sandbox::User=root update -qq \
 COPY --from=boundary_contracts . /tmp/boundary
 RUN /opt/gw/bin/pip install -q --no-cache-dir /tmp/boundary && rm -rf /tmp/boundary
 COPY --from=envcheck /envcheck /usr/local/bin/envcheck
-COPY --from=boundary_contracts schemas/AreaGatewayEnv.schema.json /etc/openit/schemas/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 COPY gen-area-gateway-config.py /usr/local/bin/gen-area-gateway-config.py
 COPY entrypoint.sh /usr/local/bin/area-gateway-entrypoint.sh
 LABEL io.openit.service="area-gateway" \

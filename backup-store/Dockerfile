@@ -11,7 +11,8 @@ ARG COMMIT=unknown
 ARG BOUNDARY_TAG=unknown
 LABEL io.openit.service="backup-store" io.openit.revision="${COMMIT}" io.openit.contracts.boundary="${BOUNDARY_TAG}" io.openit.contracts.survey-schema="n/a" io.openit.model-runtime="n/a"
 COPY --from=envcheck /envcheck /usr/local/bin/envcheck
-COPY --from=boundary_contracts schemas/BackupStoreEnv.schema.json /etc/openit/schemas/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 COPY --chmod=755 entrypoint.sh /usr/local/bin/openit-backup-store-entrypoint.sh
 # 저장소 데이터는 Docker 표준 VOLUME 으로 선언한다
 USER root

@@ -2,7 +2,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -14,6 +16,27 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "사용: envcheck <스키마 파일> [--no-export]")
 		os.Exit(64)
+	}
+	if os.Args[1] == "--json-string" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(64)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(string(data)); err != nil {
+			os.Exit(64)
+		}
+		return
+	}
+	if len(os.Args) > 2 && os.Args[2] == "--json-stdin" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(64)
+		}
+		if bad := envcheck.ValidateJSON(os.Args[1], data); len(bad) > 0 {
+			fmt.Fprintln(os.Stderr, "envcheck: record violates its schema")
+			os.Exit(64)
+		}
+		return
 	}
 	vals, bad := envcheck.Load(os.Args[1])
 	if len(bad) > 0 {

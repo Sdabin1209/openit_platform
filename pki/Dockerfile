@@ -16,8 +16,8 @@ COPY --from=envcheck /envcheck /usr/local/bin/envcheck
 # 데이터 주인 백업·복구 잡(pki-ca = /home/step): restic 은 잠금 digest 의 공식 이미지에서
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY --from=common --chmod=755 backup-job.sh /usr/local/bin/platform-backup-job
-COPY --from=boundary_contracts schemas/CommonEnv.schema.json /etc/openit/schemas/
-COPY --from=boundary_contracts schemas/StepCaEnv.schema.json /etc/openit/schemas/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 COPY image/entrypoint.sh /usr/local/bin/openit-step-ca-entrypoint.sh
 # 상태 폴더는 Docker 표준 VOLUME 으로 선언한다(배치는 이미지 선언을 읽어 마운트하고 경로를 따로 알지 않는다): CA 키·설정 /home/step, (발급 토큰·인증서 폴더는 STEP_TOKENS_DIR·STEP_CERTS_DIR 로 받는 실행별 마운트다)
 VOLUME ["/home/step"]

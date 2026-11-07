@@ -71,6 +71,10 @@ func keycloak() {
 	if err := json.Unmarshal(realmTemplate, &realm); err != nil {
 		die(70, "realm 템플릿이 깨졌다")
 	}
+	// Keycloak's user-profile component applies to self registration and admin
+	// creation as well as the register-users job. Its username rule is the
+	// public HumanUserId schema, never a second independently chosen pattern.
+	realm["components"] = userProfileComponents()
 	cl := realm["clients"].([]any)[0].(map[string]any)
 	if cl["secret"] != holderClient {
 		die(70, "realm 템플릿의 클라이언트 비밀 자리표시가 바뀌었다")

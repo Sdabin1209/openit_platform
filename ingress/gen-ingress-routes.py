@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """platform 공개 입구의 경로 표 생성기(구조 점검 S9, ADR 0002). 각 영역의 Exposure 선언(라벨 io.openit.exposure 의 내용, 계약 스키마로 검증)에서 Caddy 경로 처리(routes.caddy)를 만든다.
 손으로 쓴 영역 경로는 없다: 경로·메서드·인증 종류·역할·상류 토큰·사람 신원 헤더·스트리밍·시간 한도·본문 상한이 모두 선언에서 나온다.
-계약: RUNTIME R2.1(앱 응답 그대로, 헤더는 앱이 정하지 않았을 때만 더함)·R3.5(본문 상한 413)·R3.13(기기 401)·R3.23(사람 401·302)·R3.24(역할 403, ACCOUNT_PENDING_APPROVAL)·R3.12(인증 확인 한도 503), CONVENTIONS 6절(신원 헤더).
- - machine-token 경로는 내보내지 않는다(3.4.7: 받는 서비스가 대조하고 compose 밖 기계 호출자는 hosts 표로 영역 게이트웨이에 바로 간다): 선언이 없는 것과 같다(404 바닥).
+계약: RUNTIME R2.1(앱 응답 그대로, 헤더는 앱이 정하지 않았을 때만 더함)·R3.5(본문 상한 413)·R3.13(기기 403)·R3.23(사람 401·302)·R3.24(역할 403, ACCOUNT_PENDING_APPROVAL)·R3.12(인증 확인 한도 503), CONVENTIONS 6절(신원 헤더).
  - denied 는 404 BoundaryError(NOT_FOUND). Exposure 에 없는 /v1/* 도 404(Caddyfile 바닥 규칙).
 사용: gen-ingress-routes.py <Exposure JSON 파일 또는 폴더>... > routes.caddy      (비밀 값 없음; 비밀은 {file./run/secrets/<이름>} 치환으로 설정을 읽을 때 Caddy 가 읽는다)"""
 import json, pathlib, re, sys
@@ -27,7 +26,7 @@ def respond(status, body, extra=()):
 
 
 def proxy(host, r, mode):
-    """mode: account | authenticated | none | device_cert | device_token"""
+    """mode: account | authenticated | none | device_cert"""
     t = r.get("timeouts_ms") or {}
     out = ["reverse_proxy https://%s {" % host,
            "\theader_up X-Forwarded-Host {http.request.hostport}",
@@ -44,8 +43,8 @@ def proxy(host, r, mode):
         out += ["\theader_up -X-Openit-User", "\theader_up -X-Openit-Roles"]
     if r.get("upstream_token"):
         out.append('\theader_up Authorization "Bearer {file.{$INGRESS_UPSTREAM_TOKENS_DIR}/%s}"' % r["upstream_token"])
-    elif mode != "device_token":
-        out.append("\theader_up -Authorization")   # 클라이언트 자격은 서비스로 넘기지 않는다(기기 토큰 호환 경로 제외)
+    else:
+        out.append("\theader_up -Authorization")   # 클라이언트 자격은 서비스로 넘기지 않는다(서비스 자격은 선언만 사용)
     if r.get("streaming"):
         out.append("\tflush_interval -1")
     out += ["\tlb_try_duration 0", "\ttransport http {", "\t\ttls_trusted_ca_certs " + CA, "\t\tdial_timeout %s" % secs(t.get("dial", 1000))]
@@ -74,8 +73,6 @@ def gen(exposures):
     for e in exposures:
         for r in e["routes"]:
             kind = r["auth"]["kind"]
-            if kind == "machine-token":
-                continue   # 내보내지 않는다: 이 경로는 아래 바닥 규칙(404)이거나 다른 선언이 정한다
             if kind == "denied":
                 continue   # 거부 선언은 경로를 만들지 않는다: 선언이 없는 경로는 아래 바닥 규칙(404)이다. 같은 경로를 다른 영역이 열었으면 그 선언이 서비스한다(HTTP.md I1)
             for p in r["paths"]:
@@ -107,13 +104,36 @@ def gen(exposures):
         limit = max(o[1].get("max_body_bytes", DEFAULT_MAX_BODY) for o in opts)
         if limit != DEFAULT_MAX_BODY:
             body += ["request_body {", "\tmax_size %d" % limit, "}"]
-        if kinds == {"device-token"}:
+        if kinds == {"device"}:
             svc, r = opts[0]
-            body += ["handle @device_cert {", "\theader ?Cache-Control no-store"] + indent(proxy(svc, r, "device_cert")) + ["}",
-                     "handle @device_ok {", "\theader ?Cache-Control no-store"] + indent(proxy(svc, r, "device_token")) + ["}",
-                     "handle {"] + indent(respond(401, PERM("device authentication failed"), ["header WWW-Authenticate Bearer"])) + ["}"]
+            # 요청마다 확인하므로 이미 열린 TLS 연결에서도 allowlist 폐기가 즉시 반영된다.
+            device_body = ["vars auth_phase checking", "forward_auth unix//tmp/openit/device-auth.sock {",
+                     "\turi /verify?",
+                     '\theader_up X-Openit-Device-Cn "{re.devcn.1}"',
+                     '\theader_up X-Openit-Device-Serial "{http.request.tls.client.serial}"',
+                     "\tcopy_headers X-Openit-Device",
+                     "\ttransport http {", "\t\tdial_timeout {$AUTH_CHECK_TIMEOUT}", "\t\tresponse_header_timeout {$AUTH_CHECK_TIMEOUT}", "\t}",
+                     "}", "vars auth_phase ready", "header ?Cache-Control no-store"] + proxy(svc, r, "device_cert")
+            body += ["handle @device_cert {", "\troute {"] + indent(device_body, 2) + ["\t}", "}", "handle {"] + indent(respond(403, PERM("device authentication failed"))) + ["}"]
         elif kinds <= {"account", "authenticated"}:
+            from boundary_contracts import load_schema
+            # CEL uses RE2: its \z is the strict end assertion corresponding to
+            # JSON Schema's ECMA $(?![\s\S]). Keep the owner's character rule.
+            definitions = load_schema("_common")["$defs"]
+            identity = definitions["HumanUserId"]
+            visited = set()
+            while "$ref" in identity:
+                ref = identity["$ref"]
+                if ref in visited or not ref.startswith("#/$defs/"):
+                    raise SystemExit("HumanUserId 참조를 해석하지 못했다")
+                visited.add(ref)
+                identity = definitions[ref.removeprefix("#/$defs/")]
+            user_rule = identity["pattern"].replace("$(?![\\s\\S])", r"\z")
+            user_value = "{http.request.header.X-Auth-Request-Preferred-Username}"
+            invalid_user = "expression `!(%s.matches(%s) && %s.size() >= %d && %s.size() <= %d)`" % (user_value, json.dumps(user_rule), user_value, identity["minLength"], user_value, identity["maxLength"])
+            unavailable = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"UNAVAILABLE","message":"authenticated identity violates contract","retryable":true}'
             body += ["import authenticate"]
+            body += block("invaliduser%d" % n, [invalid_user], respond(503, unavailable, ["header Retry-After 5"]))
             auth_only = [o for o in opts if o[1]["auth"]["kind"] == "authenticated"]
             acct = [o for o in opts if o[1]["auth"]["kind"] == "account"]
             if acct:   # 가입 승인 대기(역할 없음)는 403 ACCOUNT_PENDING_APPROVAL, authenticated 경로는 역할 없이도 연다(R3.24)

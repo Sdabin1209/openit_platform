@@ -5,6 +5,7 @@
 이미지 안에서는 entrypoint.sh 가 부른다(입력은 Dockerfile 머리말). 사용: gen-area-gateway-config.py --exposure <Exposure JSON 파일> --upstream <host:port> [--cert F --key F] [--ingress-port 443 --egress-port 3128] > envoy.yaml
 입력은 Exposure 계약 스키마로 검증한다(CONVENTIONS 3절). 비밀 값 없음."""
 import argparse, json, re, sys
+from boundary_contracts import validator
 from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 오류 본문의 스키마 버전은 계약 패키지의 현행 값이다(박지 않는다)
 
 DENIED = {"pipeline_schema_version": PSV, "code": "PERMISSION_DENIED", "message": "EGRESS_DENIED", "retryable": False, "details": {"reason": "EGRESS_DENIED"}}
@@ -80,6 +81,7 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
     route_upstreams = route_upstreams or {}
     exact, public = allowed_authorities(exposure.get("egress") or [])
     uh, up = upstream.rsplit(":", 1)
+    uh = uh.removeprefix("[").removesuffix("]")
     ingress_prefixes = [(pre, "up%d" % i) for i, pre in enumerate(sorted(route_upstreams))]
     denied = json.dumps(DENIED, ensure_ascii=False, separators=(",", ":"))
     allow_routes = [{"match": {"connect_matcher": {}, "headers": [{"name": ":authority", "string_match": {"exact": a}}]},
@@ -122,7 +124,7 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
                          {"name": "envoy.filters.http.router", "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}],
             "clusters": [
                 {"name": "area", "type": "STRICT_DNS", "connect_timeout": "1s", "load_assignment": {"cluster_name": "area", "endpoints": [{"lb_endpoints": [{"endpoint": {"address": {"socket_address": {"address": uh, "port_value": int(up)}}}}]}]}},
-                *[{"name": "up%d" % i, "type": "STRICT_DNS", "connect_timeout": "1s", "load_assignment": {"cluster_name": "up%d" % i, "endpoints": [{"lb_endpoints": [{"endpoint": {"address": {"socket_address": {"address": route_upstreams[pre].rsplit(":", 1)[0], "port_value": int(route_upstreams[pre].rsplit(":", 1)[1])}}}}]}]}} for i, pre in enumerate(sorted(route_upstreams))],
+                *[{"name": "up%d" % i, "type": "STRICT_DNS", "connect_timeout": "1s", "load_assignment": {"cluster_name": "up%d" % i, "endpoints": [{"lb_endpoints": [{"endpoint": {"address": {"socket_address": {"address": route_upstreams[pre].rsplit(":", 1)[0].removeprefix("[").removesuffix("]"), "port_value": int(route_upstreams[pre].rsplit(":", 1)[1])}}}}]}]}} for i, pre in enumerate(sorted(route_upstreams))],
                 *[{"name": "port%d" % pt, "type": "STATIC", "connect_timeout": "1s", "load_assignment": {"cluster_name": "port%d" % pt, "endpoints": [{"lb_endpoints": [{"endpoint": {"address": {"socket_address": {"address": "127.0.0.1", "port_value": pt}}}}]}]}} for pt in sorted({r["upstream_port"] for r in exposure.get("routes", []) if r.get("upstream_port")})],
                 {"name": "dfp", "lb_policy": "CLUSTER_PROVIDED", "connect_timeout": "5s", "cluster_type": {"name": "envoy.clusters.dynamic_forward_proxy", "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig", "dns_cache_config": dfp_cache}}}]},
@@ -155,17 +157,16 @@ def main(argv):
     ap.add_argument("--no-ingress", action="store_true", help="들어오는 쪽 listener 를 열지 않는다(나가는 쪽 전용). entrypoint 가 인증서 폴더(/certs)가 마운트되지 않았을 때 준다")
     ap.add_argument("--sds-out", help="SDS 파일을 이 경로에 쓴다(기본: 표준 출력에 설정만)")
     a = ap.parse_args(argv)
-    if not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", a.upstream):
+    if not validator("_common#/$defs/LoopbackHostPort").is_valid(a.upstream):
         sys.exit("upstream 은 host:port 여야 한다")
     exposure = json.load(open(a.exposure, encoding="utf-8"))
-    from boundary_contracts import validator
     errs = list(validator("Exposure").iter_errors(exposure))
     if errs:
         sys.exit("Exposure 선언이 계약을 어겼다: " + errs[0].message[:200])
     ru = {}
     for x in a.route_upstream:
         pre, _, hp = x.partition("=")
-        if not pre.startswith("/") or not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", hp):
+        if not pre.startswith("/") or not validator("_common#/$defs/LoopbackHostPort").is_valid(hp):
             sys.exit("--route-upstream 은 /접두사=host:port 여야 한다: " + x)
         ru[pre] = hp
     cfg, sds = build(exposure, a.upstream, a.cert, a.key, a.ingress_port, a.egress_port, ru, a.sds_path, ingress=not a.no_ingress)

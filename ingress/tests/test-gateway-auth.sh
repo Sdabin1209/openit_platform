@@ -5,6 +5,7 @@
 # 진짜 Keycloak·oauth2-proxy 로그인은 scripts/test-idp-smoke.sh 가 본다. (Docker 필요)
 set -uo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
+source "$ROOT/ingress/tests/stack-lib.sh"
 ING=platform-ingress:test-$$   # D22: 이미지 태그에 리포 이름 + 프로세스 접미사
 T=$(mktemp -d); export SECRETS_DIR=$T; mkdir -p "$T/root-out"; chmod 777 "$T/root-out"   # 계약 INGRESS_ROOT_EXPORT_DIR 의 출력 마운트
 PKI=$T/pki; mkdir -p "$PKI"; gateway_test_pki "$PKI" survey-service release-gate question-authoring ops-feedback-ingest kiosk-frontend admin-console model-registry identity identity-proxy || { echo "시험 PKI 를 만들지 못했다"; exit 1; }   # 게이트웨이는 상류를 https 로 부르므로 가짜 상류 앞에 TLS 를 붙인다(ADR 0060)
@@ -14,10 +15,18 @@ GW=$(sed -n 's/^GATEWAY_IMAGE=//p' "$ROOT/locks/images.lock"); UTIL=$(sed -n 's/
 DATAVOL=gwauth-data-$$; NET=gwauth-net-$$; CN=gwauth-csrf-$$; CF=gwauth-fakeauth-$$; CU=gwauth-upstream-$$
 cleanup() { docker rm -f $CN $CF $CU $CF-tls $CU-tls >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; docker volume rm -f $DATAVOL >/dev/null 2>&1; rm -rf "$T"; docker rmi "$ING" >/dev/null 2>&1; }; trap cleanup EXIT
 DEVICE_PKI_DIR=$T/dpki bash "$ROOT/ingress/scripts/device-pki.sh" init >/dev/null 2>&1   # 기기 CA(필수 입력 INGRESS_DEVICE_CA_FILE)
+mkdir -p "$T/devices"; chmod 755 "$T/devices"
+DEVICE_PKI_DIR="$T/dpki" bash "$ROOT/ingress/scripts/device-pki.sh" issue auth-kiosk >/dev/null 2>&1 || exit 1
+"$PY" - "$T" <<'POLICY'
+import json, pathlib, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+serial = subprocess.check_output(["openssl", "x509", "-in", str(root / "dpki/auth-kiosk.crt"), "-noout", "-serial"], text=True).strip().split("=", 1)[1]
+(root / "devices/allowlist.json").write_text(json.dumps({"schema_version": 1, "devices": [{"device_id": "auth-kiosk", "serials": [format(int(serial, 16), "x")]}]}))
+POLICY
 FAILS=0; ok() { local n=$1; shift; if out=$("$@" 2>&1); then echo "  PASS $n"; else echo "  FAIL $n :: $(echo "$out" | grep -v "\"level\":\"\(info\|warn\)\"" | tail -3 | tr "\n" " " | cut -c1-300)"; FAILS=$((FAILS+1)); fi; }
 ACCOUNTS=$ROOT/ingress/tests/gateway-oidc/accounts.test.conf
 EXP="$ROOT/ingress/tests/exposures"
-ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443" -v "$EXP:/etc/openit/exposures:ro" -v "$T/root-out:/etc/openit/root-out" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
+ingmount() { printf '%s\n' --user 10001:10001 --group-add "$SECRETS_GID" --read-only --tmpfs /tmp:uid=10001,gid=10001 -v "$DATAVOL:/data" --tmpfs /config:uid=10001,gid=10001 -e "GATEWAY_HOSTS=localhost:8443" -e INGRESS_DEVICE_ALLOWLIST_FILE=/etc/openit/devices/allowlist.json -v "$T/devices:/etc/openit/devices:ro" -v "$EXP:/etc/openit/exposures:ro" -v "$T/root-out:/etc/openit/root-out" -v "$T/tokens:/run/secrets:ro" -v "$T/dpki/ca.crt:/etc/openit/device-ca.pem:ro"; }
 val() { docker run --rm $(gateway_test_mounts "$PKI") $(ingmount) "$ING" validate; }   # 이미지의 validate 부명령: 진입점과 같은 준비(환경 검증·경로 표·기기 조각) 뒤 caddy validate
 # L20(ADR 0056): CSRF 허용 호스트 이름은 GATEWAY_HOSTS 에서 만든다
 hn() { docker run --rm --entrypoint /opt/gw/bin/python "$ING" /usr/local/bin/gen-host-names.py "$1"; }
@@ -27,24 +36,14 @@ ok "GATEWAY_HOSTS 에서 호스트 이름 목록이 만들어진다(포트는 �
 ok "와일드카드·따옴표가 든 이름은 거부(식을 깨뜨리지 못한다)" bash -c '! hn "*.x:8443" >/dev/null 2>&1 && ! hn "a\"b:8443" >/dev/null 2>&1'
 ok "계약 PublicIngressEnv 에 없는 INGRESS_ 이름(예: 옛 INGRESS_BUILTIN)은 시작 거부(종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e INGRESS_BUILTIN=x "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "GATEWAY_HOSTS 에 IP 리터럴이 있으면 시작 거부(종료 64, 계약 3.4.14: DNS 이름만 — SNI 에는 IP 를 쓸 수 없다, RFC 6066 3절)" bash -c 'docker run --rm -e GATEWAY_HOSTS="localhost:8443,127.0.0.1:8443" "$ING" validate >/dev/null 2>&1; [ $? = 64 ] && docker run --rm -e GATEWAY_HOSTS=10.0.0.5 "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
-ok "internal 모드에서 루트 내보내기 폴더에 쓸 수 없으면 시작 거부(종료 64): 신뢰가 조용히 끊기지 않는다" bash -c 'e=$(docker run --rm -e GATEWAY_HOSTS=localhost -v "$1:/etc/openit/device-ca.pem:ro" --read-only --tmpfs /tmp "$ING" validate 2>&1 >/dev/null); [ $? = 64 ] && grep -q "루트 내보내기 폴더" <<<"$e"' _ "$T/dpki/ca.crt"
+ok "internal 모드에서 루트 내보내기 폴더에 쓸 수 없으면 시작 거부(종료 64): 신뢰가 조용히 끊기지 않는다" bash -c 'e=$(docker run --rm -e GATEWAY_HOSTS=localhost -e INGRESS_DEVICE_ALLOWLIST_FILE=/etc/openit/devices/allowlist.json -v "$1:/etc/openit/device-ca.pem:ro" --read-only --tmpfs /tmp "$ING" validate 2>&1 >/dev/null); [ $? = 64 ] && grep -q "루트 내보내기 폴더" <<<"$e"' _ "$T/dpki/ca.crt"
 ok "GATEWAY_HOSTS 가 없으면 시작 거부(필수, 종료 64)" bash -c 'docker run --rm "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
 ok "acme 모드에서 GATEWAY_ACME_EMAIL 이 없으면 시작 거부(조건부 필수, 종료 64)" bash -c 'docker run --rm -e GATEWAY_HOSTS=a -e GATEWAY_TLS_MODE=acme "$ING" validate >/dev/null 2>&1; [ $? = 64 ]'
-OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-secrets.sh 성공" test -s "$T/tokens/devices/auth-1"
+OUT=$(bash "$ROOT/ingress/scripts/gen-test-secrets.sh" "$T" 2>&1); ok "gen-test-secrets.sh 성공" test -s "$T/tokens/survey-api-staff"
 ok "출력에 비밀 값이 없다" bash -c '! grep -qE "[0-9a-f]{40}" <<<"$1"' _ "$OUT"
 ok "정적 계정 파일·basic_auth 조각은 만들지 않는다(U82: 사람 인증은 OIDC)" bash -c '[ ! -e "$1/gateway-accounts.caddy" ] && ! grep -v "^[[:space:]]*#" "$2/ingress/config/Caddyfile" "$2/ingress/config/gateway-auth.caddy" | grep -q "basic_auth"' _ "$T" "$ROOT"
-ok "Caddyfile + 인증 조각 + 기기 조각이 caddy validate 통과(기기 5대)" val
-gd() { docker run --rm --group-add "$SECRETS_GID" --entrypoint /opt/gw/bin/python -v "$1:/d:ro" "$ING" /usr/local/bin/gen-devices.py /d; }
-export -f gd
-ok "기기 토큰 폴더(기기마다 파일 하나)에서 조각이 만들어진다: 토큰 5개" bash -c '[ "$(gd "$1/tokens/devices" 2>/dev/null | grep -o Bearer | wc -l)" = 5 ]' _ "$T"
-mkdir -p "$T/dev4"; cp "$T"/tokens/devices/e2e "$T"/tokens/devices/e2e-a "$T"/tokens/devices/e2e-b "$T"/tokens/devices/e2e-c "$T/dev4/"
-ok "파일 하나를 지우면 그 기기는 폐기된다(토큰 4개)" bash -c '[ "$(gd "$1/dev4" 2>/dev/null | grep -o Bearer | wc -l)" = 4 ]' _ "$T"
-mkdir -p "$T/devbad"; cp "$T/tokens/devices/e2e" "$T/devbad/Bad ID"
-ok "device_id 형식이 아닌 파일 이름은 거부" bash -c '! gd "$1/devbad" >/dev/null 2>&1' _ "$T"
-mkdir -p "$T/devempty"
-ok "기기가 0대여도 조각이 유효(모두 거부)" bash -c 'gd "$1/devempty" 2>/dev/null | grep -q "expression false"' _ "$T"
-mkdir -p "$T/devshort"; echo "abc" > "$T/devshort/k1"
-ok "토큰 한 줄 형식이 아니면 거부(값은 출력하지 않는다)" bash -c '! gd "$1/devshort" >/dev/null 2>&1' _ "$T"
+ok "Caddyfile + OIDC + mTLS 설정이 caddy validate 통과" val
+ok "기기 허용 목록을 쓰는 설정이 caddy validate 통과" val
 # 가짜 oauth2-proxy 와 가짜 상류를 같은 네트워크에 둔다. 상류 이름은 Caddyfile 이 부르는 서비스 이름이다
 docker network create $NET >/dev/null
 docker run -d --name $CF --network $NET --network-alias identity-proxy -e FAKE_ACCOUNTS=/accounts -v "$ACCOUNTS:/accounts:ro" -v "$ROOT/ingress/tests/gateway-oidc/fake-oauth2-proxy.py:/f.py:ro" "$UTIL" python /f.py >/dev/null
@@ -132,7 +131,7 @@ byp "청크 전송 9MiB 본문(인증 없음)" "302 401 403 404 413" /v1/approva
 AN=0
 call() { # call <계정|-|bearer:<토큰>|cookie:<값>> <메서드> <경로> [curl 인자...] -> 코드를 표준 출력, 응답 머리글 $T/ah.out, 본문 $T/ab.out
   local who=$1 m=$2 path=$3 auth=(); shift 3
-  case "$who" in -) ;; bearer:*) auth=(-H "Authorization: Bearer ${who#bearer:}");; cookie:*) auth=(-H "Cookie: fakeauth=${who#cookie:}");; *) auth=(-H "Cookie: fakeauth=$who");; esac
+  case "$who" in -) ;; device) auth=(--cert "$T/dpki/auth-kiosk.crt" --key "$T/dpki/auth-kiosk.key");; bearer:*) auth=(-H "Authorization: Bearer ${who#bearer:}");; cookie:*) auth=(-H "Cookie: fakeauth=${who#cookie:}");; *) auth=(-H "Cookie: fakeauth=$who");; esac
   curl -sk -m 5 -D "$T/ah.out" -o "$T/ab.out" -w '%{http_code}' -X "$m" "${auth[@]}" "$@" "https://localhost:$CP$path"; }
 wa() { grep -i '^www-authenticate:' "$T/ah.out" | tr -d '\r' | head -1; }
 loc() { grep -i '^location:' "$T/ah.out" | tr -d '\r' | head -1; }
@@ -221,26 +220,25 @@ cp "$T/root-out/root_ca.crt" "$T/gw-root.crt"   # 점검은 인증서 검증을 
 if openssl s_client -connect 127.0.0.1:$CP -servername localhost -CAfile "$T/gw-root.crt" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then echo "  PASS 내보낸 루트로 공개 입구 인증서가 검증된다"; else echo "  FAIL 내보낸 루트로 공개 입구 인증서가 검증되지 않는다"; FAILS=$((FAILS+1)); fi
 selfcheck() { docker run --rm --network $NET -v "$1:/etc/openit/exposures:ro" -v "$T/gw-root.crt:/ca.crt:ro" --entrypoint selfcheck-unauth "$ING" "https://gateway:8443" --cacert /ca.crt; }
 AN=$((AN+1)); if out=$(selfcheck "$EXP" 2>&1); then echo "  PASS 자체 점검 명령: $(echo "$out" | tail -1)"; else echo "  FAIL 자체 점검 명령 rc=$?: $(echo "$out" | grep -a FAIL | head -3 | tr '\n' ' ')"; FAILS=$((FAILS+1)); fi
-# 변이: 선언 하나의 인증 종류를 바꾸면(직원 화면 account -> device-token) 같은 명령이 rc=1
+# 변이: 선언 하나의 인증 종류를 바꾸면(직원 화면 account -> device) 같은 명령이 rc=1
 mkdir -p "$T/mut-exp"; cp "$EXP"/*.json "$T/mut-exp/"; python3 - "$T/mut-exp/kiosk-frontend.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 for r in d["routes"]:
-    if "/staff/*" in r["paths"]: r["auth"]={"kind":"device-token"}
+    if "/staff/*" in r["paths"]: r["auth"]={"kind":"device"}
 json.dump(d,open(sys.argv[1],"w"))
 PY
 AN=$((AN+1)); if out=$(selfcheck "$T/mut-exp" 2>&1); then echo "  FAIL 변이: 선언을 바꿨는데 자체 점검이 통과했다"; FAILS=$((FAILS+1)); else echo "  PASS 변이: 선언이 실제와 다르면 자체 점검이 rc=1 ($(echo "$out" | grep -ac FAIL)건 FAIL)"; fi
-# 기기 토큰 경로(공개 API): 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer (RFC 6750 3절)
-DEVTOK=$(cat "$T/tokens/devices/auth-1")
-chk401 "기기 토큰 없음 POST /v1/sessions" Bearer - POST /v1/sessions
-chk401 "틀린 기기 토큰 POST /v1/sessions" Bearer bearer:0000000000000000000000000000000000000000000000000000000000000000 POST /v1/sessions
-chk401 "사람 세션 쿠키는 기기 경로에서 자격이 아니다(Bearer 를 안내)" Bearer staff-e2e POST /v1/sessions
-chk401 "기기 토큰 없음 GET /v1/sessions/s1/state" Bearer - GET /v1/sessions/s1/state
-chkpass "유효한 기기 토큰 POST /v1/sessions" bearer:"$DEVTOK" POST /v1/sessions
-chk401 "기기 토큰 없음 GET /v1/question-sets (I10 문진표 목록은 세션과 같은 기기 인증)" Bearer - GET /v1/question-sets
-chk401 "틀린 기기 토큰 GET /v1/question-sets" Bearer bearer:0000000000000000000000000000000000000000000000000000000000000000 GET /v1/question-sets
-chkpass "유효한 기기 토큰 GET /v1/question-sets" bearer:"$DEVTOK" GET /v1/question-sets
-chkpass "유효한 기기 토큰 GET /v1/question-sets?question_set_id=x (쿼리가 막히지 않는다)" bearer:"$DEVTOK" GET "/v1/question-sets?question_set_id=x"
+# 4.0 기기 경로는 인증서와 허용 목록으로만 인증하며 HTTP challenge는 없다.
+for path in /v1/sessions /v1/question-sets; do
+  method=GET; [ "$path" != /v1/sessions ] || method=POST
+  for who in - bearer:retired-device-token staff-e2e; do
+    chk403 "기기 인증서 없음 $method $path" "$who" "$method" "$path"
+    if [ -n "$(wa)" ]; then echo "  FAIL 기기 경로에 HTTP 인증 challenge"; FAILS=$((FAILS+1)); fi
+  done
+  chkpass "허용된 기기 인증서 $method $path" device "$method" "$path"
+done
+chkpass "허용된 기기 인증서 문진표 쿼리" device GET "/v1/question-sets?question_set_id=x"
 # 기계 경로(추론 서버의 릴리스 읽기, D72): 기계 토큰만 연다. 사람 OIDC 세션은 이 경로의 자격이 아니다(D7d: 예전 `not header Authorization Basic*` 조건을 세션 쿠키 기준으로 바꿨다)
 INFTOK=$(tr -d '\r\n' < "$T/tokens/gateway-inference-token")
 chk404() { # chk404 <설명> <who> <메서드> <경로>: 내보내지 않는 경로는 404 BoundaryError(NOT_FOUND)

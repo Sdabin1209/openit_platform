@@ -91,6 +91,7 @@ services:
     networks: [auth]
     ports: ["127.0.0.1:${PUBLIC_PORT:?}:8443"]
     environment:
+      INGRESS_DEVICE_ALLOWLIST_FILE: /etc/openit/devices/allowlist.json
       GATEWAY_TLS_MODE: files   # 시험 PKI 의 서버 인증서(IP SAN 포함): 시험 클라이언트가 루트 인증서 하나만 신뢰한다
       GATEWAY_HOSTS: "${GATEWAY_HOSTS:-localhost:8443}"
       GATEWAY_PUBLIC_TLS_PORT: "${PUBLIC_PORT}"
@@ -98,6 +99,7 @@ services:
     volumes:
       - ${PKI_DIR}/root_ca.crt:/etc/openit/pki/root_ca.crt:ro
       - ${PKI_DIR}/certs:/etc/openit/ingress-tls:ro
+      - ${DEVICE_ALLOWLIST_DIR:?}:/etc/openit/devices:ro
       - ${DEVICE_CA:?}:/etc/openit/device-ca.pem:ro   # 기기 CA(계약 PublicIngressEnv.INGRESS_DEVICE_CA_FILE, 필수)
       - ${EXPOSURES_DIR:?}:/etc/openit/exposures:ro
       - ${SECRETS_DIR:?}/tokens:/run/secrets:ro

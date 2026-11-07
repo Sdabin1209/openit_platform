@@ -59,15 +59,6 @@
         },
         {
           "path_env": null,
-          "path": "/run/secrets/devices",
-          "directory": true,
-          "kind": "config",
-          "schema": null,
-          "required": true,
-          "opened_by": "start-process"
-        },
-        {
-          "path_env": null,
           "path": "/run/secrets/gate-read-model-serving",
           "directory": false,
           "kind": "secret",
@@ -197,6 +188,33 @@
           "path": "/run/secrets",
           "directory": true,
           "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/devices",
+          "directory": true,
+          "kind": "config",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "INGRESS_DEVICE_ALLOWLIST_FILE",
+          "path": "/etc/openit/devices/allowlist.json",
+          "directory": false,
+          "kind": "config",
+          "schema": "DeviceAllowlist",
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/run/secrets/survey-api-kiosk",
+          "directory": false,
+          "kind": "secret",
           "schema": null,
           "required": true,
           "opened_by": "start-process"

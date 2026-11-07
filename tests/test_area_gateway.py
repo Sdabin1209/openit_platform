@@ -22,12 +22,23 @@ def have_docker():
 pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
 
 
-def start_gw(stack, name, exposure, alias=None, upstream="app:8080"):
+def start_gw(stack, name, exposure, alias=None, upstream="127.0.0.1:8080"):
     """진입점 계약: /etc/openit/exposure.json + /certs + 환경 변수 AREA_GATEWAY_UPSTREAM. 설정은 이미지가 만든다."""
     d, tag = stack["d"], stack["tag"]
     (d / f"{name}.json").write_text(json.dumps(exposure))
     stack["run"](f"{name}-{tag}", "--network-alias", alias or name, "--read-only", "--tmpfs", "/tmp", "-e", f"AREA_GATEWAY_UPSTREAM={upstream}",
                  "-v", f"{d}/{name}.json:/etc/openit/exposure.json:ro", "-v", f"{d}/certs:/certs:ro", IMAGE)
+    # 평문 상류는 같은 pod의 루프백뿐이다. 각 게이트웨이의 앱도 그 네트워크 공간에 둔다.
+    if upstream == "127.0.0.1:8080":
+        app = f"{name}-app-{tag}"
+        stack["run"](app, lock("UTIL_IMAGE"), "python", "-c", stack["app_code"], network=f"container:{name}-{tag}")
+        until = time.monotonic() + 30
+        while time.monotonic() < until:
+            if sh("docker", "exec", app, "python", "-c", "import socket;socket.create_connection(('127.0.0.1',8080),timeout=1).close()", check=False).returncode == 0:
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("pod application did not become ready")
     # A running process may still be warming DNS/listeners. Wait for the image's
     # declared health probe rather than assuming a fixed sleep means readiness.
     deadline = time.monotonic() + 45  # Standalone fixture startup budget, not a runtime contract timeout.
@@ -46,8 +57,8 @@ def stack():
     tag = uuid.uuid4().hex[:8]; net = f"pgw-{tag}"; d = pathlib.Path(tempfile.mkdtemp(prefix="pgw-"))
     sh("docker", "network", "create", net)
     names = []
-    def run(name, *args):
-        names.append(name); sh("docker", "run", "-d", "--name", name, "--network", net, *args)
+    def run(name, *args, network=None):
+        names.append(name); sh("docker", "run", "-d", "--name", name, "--network", network or net, *args)
     try:
         req = d / "build-request.json"   # build-image.sh 는 요청 JSON 파일 경로를 받는다
         req.write_text(json.dumps(
@@ -68,9 +79,8 @@ def stack():
             code = ("import http.server,ssl\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(b'from-" + nm + "')\n def log_message(s,*a): pass\n"
                     "h=http.server.ThreadingHTTPServer(('0.0.0.0',443),H); c=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain('/c.crt','/c.key'); h.socket=c.wrap_socket(h.socket,server_side=True); h.serve_forever()")
             run(f"{nm}-{tag}", "--network-alias", nm, "-v", f"{d}/{nm}.crt:/c.crt:ro", "-v", f"{d}/{nm}.key:/c.key:ro", util, "python", "-c", code)
-        run(f"app-{tag}", "--network-alias", "app", util, "python", "-c",
-            "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s):\n  if s.path=='/app-error':\n   s.send_response(503); s.send_header('Retry-After','17'); s.send_header('X-App','original'); s.end_headers(); s.wfile.write(b'app-original-body'); return\n  s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()")
-        st = {"net": net, "d": d, "tag": tag, "run": run}
+        app_code = "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s):\n  if s.path=='/app-error':\n   s.send_response(503); s.send_header('Retry-After','17'); s.send_header('X-App','original'); s.end_headers(); s.wfile.write(b'app-original-body'); return\n  s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()"
+        st = {"net": net, "d": d, "tag": tag, "run": run, "app_code": app_code}
         start_gw(st, "gw", exposure)
         yield st
     finally:
@@ -174,7 +184,7 @@ def test_egress_only_when_certs_not_mounted_opens_no_ingress_listener(stack):
     # compose 밖(학습 서버)의 게이트웨이는 나가는 쪽만 쓴다: /certs 마운트가 없으면 들어오는 listener 를 열지 않는다(인증서 없는 입구 금지). 결정은 입력(마운트)에서 나온다
     exposure = json.loads((stack["d"] / "exposure.json").read_text())
     (stack["d"] / "eo.json").write_text(json.dumps(exposure))
-    stack["run"](f"eo-{stack['tag']}", "--network-alias", "eo", "--read-only", "--tmpfs", "/tmp", "-e", "AREA_GATEWAY_UPSTREAM=app:8080",
+    stack["run"](f"eo-{stack['tag']}", "--network-alias", "eo", "--read-only", "--tmpfs", "/tmp", "-e", "AREA_GATEWAY_UPSTREAM=127.0.0.1:8080",
                  "-v", f"{stack['d']}/eo.json:/etc/openit/exposure.json:ro", IMAGE)
     time.sleep(4)
     # 들어오는 쪽 없음: 443 연결이 거절된다(listener 가 없다)
@@ -206,7 +216,7 @@ def test_public_denied_path_reaches_service_inside_area(stack):
     assert curl(stack["net"], "https://internal-route/v1/datasets") == "from-app"
 
 
-@pytest.mark.parametrize("upstream", ["missing-upstream:8080", "app:8081"])
+@pytest.mark.parametrize("upstream", ["127.0.0.2:8080", "127.0.0.1:8081"])
 def test_ingress_upstream_failure_has_declared_gateway_error(stack, upstream):
     exposure = {"service": "survey-service", "routes": [{"paths": ["/"], "auth": {"kind": "none"}}]}
     start_gw(stack, "unavailable-" + upstream.split(":")[0], exposure, upstream=upstream)

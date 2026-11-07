@@ -23,7 +23,8 @@ COPY --from=blackbox /bin/blackbox_exporter /bin/
 COPY --from=node /bin/node_exporter /bin/
 COPY --from=json /bin/json_exporter /bin/
 COPY --from=envcheck /envcheck /usr/local/bin/envcheck
-COPY --from=boundary_contracts schemas/MonitoringEnv.schema.json /etc/openit/schemas/
+# 오프라인 검증은 전이 참조(_common·CommonEnv·잡 Env 포함)까지 필요하므로 계약 패키지의 스키마 묶음을 함께 넣는다.
+COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 COPY config/prometheus.yml.tmpl config/alertmanager.yml config/blackbox.yml.tmpl config/json-exporter.yml.tmpl /etc/openit/monitoring/
 COPY config/rules /etc/openit/monitoring/rules
 COPY --chmod=755 entrypoint.sh /usr/local/bin/openit-monitoring.sh

@@ -5,7 +5,7 @@
     {
       "paths": ["/v1/packages"],
       "methods": ["POST"],
-      "auth": {"kind": "machine-token"},
+      "auth": {"kind": "denied"},
       "upstream_token": "model-registry-write-model-lab",
       "user_header": "strip",
       "max_body_bytes": 4294967296

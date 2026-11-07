@@ -32,6 +32,9 @@ bash ingress/scripts/gen-test-secrets.sh "$SECRETS_DIR" >/dev/null 2>&1 || { ech
 bash identity/scripts/gen-idp-secrets.sh "$IDP_SECRETS" || exit 1
 bash identity/scripts/gen-test-pki.sh "$PKI_DIR" || exit 1
 DEVICE_PKI_DIR=$W/dpki bash ingress/scripts/device-pki.sh init >/dev/null 2>&1 || exit 1; export DEVICE_CA=$W/dpki/ca.crt   # 기기 CA(필수 입력)
+export DEVICE_ALLOWLIST_DIR=$W/devices
+mkdir -p "$DEVICE_ALLOWLIST_DIR"; chmod 755 "$DEVICE_ALLOWLIST_DIR"
+printf '{"schema_version":1,"devices":[]}\n' > "$DEVICE_ALLOWLIST_DIR/allowlist.json"; chmod 644 "$DEVICE_ALLOWLIST_DIR/allowlist.json"
 BSRC=$(bash scripts/fetch-boundary-src.sh "$W/boundary-src") || exit 1
 BV=$("$PY" -c 'import importlib.metadata as m;print(m.version("boundary-contracts"))')
 for v in "|$GW_IMG" "public-ingress|$ING_IMG" "identity|$IDP_IMG" "identity-proxy|$PRX_IMG" "identity-db|$DB_IMG"; do
@@ -110,6 +113,8 @@ rd = "/auth/realms/openit/protocol/openid-connect/logout?client_id=openit-gatewa
 st, h, b = req("staff-e2e", "GET", "/oauth2/sign_out?rd=" + urllib.parse.quote(rd, safe="")); chk("/oauth2/sign_out?rd=<Keycloak 로그아웃> 이 막히지 않는다", st in (302, 303) and "/openid-connect/logout" in h.get("location", ""), (st, h.get("location")))
 newpw = "Newuser-pw-" + os.urandom(6).hex()
 jar, why = c.register("newbie-e2e", newpw); chk("가입 신청(자가 등록)이 되고 바로 로그인된다", bool(jar), why)
+bad_jar, _ = c.register("invalid+username", newpw)
+chk("자가 등록도 HumanUserId 밖의 계정 이름을 거부한다", not bad_jar)
 sessions["newbie-e2e"] = jar
 st, h, b = req("newbie-e2e", "GET", "/v1/staff/alerts") if jar else (0, {}, b""); chk("가입 직후(그룹 없음)는 403 ACCOUNT_PENDING_APPROVAL", st == 403 and b"ACCOUNT_PENDING_APPROVAL" in b, (st, b[:80]))
 def kcadm(*a):

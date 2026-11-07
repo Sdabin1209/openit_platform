@@ -113,7 +113,7 @@ def test_public_ingress_refuses_internal_mode_when_the_root_export_dir_is_unwrit
     # 계약 PublicIngressEnv.INGRESS_ROOT_EXPORT_DIR: internal 모드는 루트를 거기에 써야 한다. 읽기 전용 루트 파일시스템의 기본 폴더(쓸 수 없음)에서는 시작하지 않는다
     import pathlib, tempfile
     d = pathlib.Path(tempfile.mkdtemp()); (d / "ca.pem").write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n"); (d / "ca.pem").chmod(0o644); d.chmod(0o755)
-    base = ["--read-only", "--tmpfs", "/tmp", "-e", "GATEWAY_HOSTS=localhost", "-v", f"{d}/ca.pem:/etc/openit/device-ca.pem:ro"]
+    base = ["--read-only", "--tmpfs", "/tmp", "-e", "GATEWAY_HOSTS=localhost", "-e", "INGRESS_DEVICE_ALLOWLIST_FILE=/etc/openit/devices/allowlist.json", "-v", f"{d}/ca.pem:/etc/openit/device-ca.pem:ro"]
     r = sh("docker", "run", "--rm", *base, imgs["public-ingress"], "validate", check=False)
     assert r.returncode == 64 and "루트 내보내기 폴더" in r.stderr
     # 변이: files 모드는 사설 CA 를 쓰지 않으므로 이 폴더를 요구하지 않는다(다음 단계에서 다른 이유로 거절)

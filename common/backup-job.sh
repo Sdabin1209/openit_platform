@@ -9,18 +9,36 @@ set -u
 mode=${1:-}; tag=${2:-}; dirarg=${3:-}; caarg=${4:-}; engine=${5:-}; urlarg=${6:-}   # engine=postgres: 백업 전에 pg_dump 로 폴더에 덤프하고 복구 뒤에 pg_restore 로 되돌린다(urlarg = DB 접속 URI 파일 경로를 담은 @환경변수)
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 started=$(now); ERR=/tmp/.platform-backup.err
-json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+# JSON 직렬화는 표준 인코더를 쓴다: 파일 이름·오류 문구에 따옴표/개행이 있어도 JSON 한 줄이다.
+json_str() { printf '%s' "$1" | envcheck --json-string; }
 finish() { # finish <ok|failed> <snapshot|""> <bytes> <종료코드> <오류코드> <메시지> <retryable>
-  if [ "$1" = ok ]; then printf '{"status":"ok","snapshot_id":"%s","bytes":%s,"started_at":"%s","finished_at":"%s","error":null}\n' "$2" "$3" "$started" "$(now)"
-  else [ -s "$ERR" ] && sed 's#rest:[^[:space:]]*#<저장소>#g' "$ERR" | tail -n 3 >&2   # 작업 로그용 진단(저장소 주소는 가린다, 자격은 환경에만 있어 나오지 않는다)
-    printf '{"status":"failed","snapshot_id":null,"bytes":0,"started_at":"%s","finished_at":"%s","error":{"code":"%s","message":"%s","retryable":%s}}\n' "$started" "$(now)" "$5" "$(json_str "$6")" "$7"; fi
-  exit "$4"
+  rc=$4
+  if [ "$1" = ok ]; then
+    result=$(printf '{"status":"ok","snapshot_id":"%s","bytes":%s,"started_at":"%s","finished_at":"%s","error":null}' "$2" "$3" "$started" "$(now)")
+  else
+    [ -s "$ERR" ] && sed 's#rest:[^[:space:]]*#<저장소>#g' "$ERR" | tail -n 3 >&2
+    result=$(printf '{"status":"failed","snapshot_id":null,"bytes":0,"started_at":"%s","finished_at":"%s","error":{"code":"%s","message":%s,"retryable":%s}}' "$started" "$(now)" "$5" "$(json_str "$6")" "$7")
+  fi
+  # 생산자 책임: 유효하지 않은 보고는 외부로 내지 않는다. 재시도 가능한 서버 오류로 정규화한다.
+  if ! printf '%s' "$result" | envcheck /etc/openit/schemas/BackupJobResult.schema.json --json-stdin; then
+    rc=75
+    result=$(printf '{"status":"failed","snapshot_id":null,"bytes":0,"started_at":"%s","finished_at":"%s","error":{"code":"UNAVAILABLE","message":"backup result unavailable","retryable":true}}' "$started" "$(now)")
+    printf '%s' "$result" | envcheck /etc/openit/schemas/BackupJobResult.schema.json --json-stdin || exit 70
+  fi
+  printf '%s\n' "$result"
+  exit "$rc"
 }
 resolve() { # @NAME[/뒤붙임] -> 값
   case "$1" in @*) n=${1#@}; v=${n%%/*}; rest=${n#"$v"}; eval "val=\${$v:-}"; [ -n "$val" ] || return 1; printf '%s%s' "$val" "$rest";; *) printf '%s' "$1";; esac
 }
 case "$mode" in backup|restore) ;; *) finish failed "" 0 1 INVALID_RECORD "사용: backup|restore <태그> <폴더> <루트 PEM>" false;; esac
-ENVOUT=$(envcheck /etc/openit/schemas/CommonEnv.schema.json 2>"$ERR") || finish failed "" 0 1 INVALID_RECORD "환경이 CommonEnv 를 어겼다" false
+env_schema=BackupJobEnv
+case "$tag" in
+  identity-db) env_schema=IdentityDatabaseBackupEnv;;
+  gateway-data) env_schema=PublicIngressBackupEnv;;
+  pki-ca) env_schema=StepCaBackupEnv;;
+esac
+ENVOUT=$(envcheck "/etc/openit/schemas/$env_schema.schema.json" 2>"$ERR") || finish failed "" 0 1 INVALID_RECORD "환경이 백업 입력 계약을 어겼다" false
 eval "$ENVOUT"
 dir=$(resolve "$dirarg") || finish failed "" 0 1 INVALID_RECORD "폴더 환경 변수가 없다" false
 ca=$(resolve "$caarg") || finish failed "" 0 1 INVALID_RECORD "루트 인증서 환경 변수가 없다" false
@@ -35,13 +53,13 @@ timeout 30 restic cat config >/dev/null 2>"$ERR"; rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 143 ]; then echo "백업 저장소 연결 시간 초과" > "$ERR"; finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; fi
 if [ $rc -eq 10 ]; then
   [ "$mode" = backup ] || finish failed "" 0 1 NOT_FOUND "백업 저장소에 이 저장소가 없다" false
-  restic init >/dev/null 2>"$ERR" || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "저장소를 만들지 못했다" false; }
+  restic init >/dev/null 2>"$ERR" || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 FAILED_PRECONDITION "저장소를 만들지 못했다" false; }
 elif [ $rc -ne 0 ]; then
   net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true
   finish failed "" 0 1 PERMISSION_DENIED "백업 저장소가 거절했다(자격·암호)" false
 fi
 pg_net_err() { grep -qiE 'could not (translate|connect)|connection refused|timeout expired|network is unreachable|server closed the connection|no route to host' "$ERR"; }   # 인증 실패(password authentication failed)는 닿은 것이다: 재시도 가능이 아니다
-pg_fail() { pg_net_err && finish failed "" 0 75 UNAVAILABLE "데이터베이스에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "$1" false; }
+pg_fail() { pg_net_err && finish failed "" 0 75 UNAVAILABLE "데이터베이스에 닿지 못했다" true; finish failed "" 0 1 FAILED_PRECONDITION "$1" false; }
 if [ "$engine" = postgres ]; then   # 데이터베이스를 가진 영역의 백업(R10.1): 실행 중인 DB 를 일관된 한 시점의 덤프 파일로 꺼내 폴더에 두고 그 폴더를 백업한다. 덤프 파일은 비밀 URI 를 담지 않는다
   urlfile=$(resolve "$urlarg") || finish failed "" 0 1 INVALID_RECORD "DB 접속 URI 파일 환경 변수가 없다" false
   [ -r "$urlfile" ] || finish failed "" 0 1 INVALID_RECORD "DB 접속 URI 파일을 읽을 수 없다" false
@@ -49,17 +67,17 @@ if [ "$engine" = postgres ]; then   # 데이터베이스를 가진 영역의 백
 fi
 if [ "$mode" = backup ]; then
   if [ "$engine" = postgres ]; then rm -f "$dir/dump.pgdump"; pg_dump --format=custom --no-owner --file "$dir/dump.pgdump" "$(cat "$urlfile")" 2>"$ERR" || pg_fail "덤프에 실패했다"; fi
-  out=$(restic backup --json --tag "$tag" "$dir" 2>"$ERR") || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "백업에 실패했다" false; }
+  out=$(restic backup --json --tag "$tag" "$dir" 2>"$ERR") || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 FAILED_PRECONDITION "백업에 실패했다" false; }
   sum=$(printf '%s\n' "$out" | grep '"message_type":"summary"' | tail -n1)
   snap=$(printf '%s' "$sum" | sed -n 's/.*"snapshot_id":"\([0-9a-f]*\)".*/\1/p'); bytes=$(printf '%s' "$sum" | sed -n 's/.*"total_bytes_processed":\([0-9]*\).*/\1/p')
-  [ -n "$snap" ] || finish failed "" 0 1 INTERNAL "스냅숏 ID 를 읽지 못했다" false
+  [ -n "$snap" ] || finish failed "" 0 1 FAILED_PRECONDITION "스냅숏 ID 를 읽지 못했다" false
   finish ok "$snap" "${bytes:-0}" 0
 else
-  snaps=$(restic snapshots --json --latest 1 --tag "$tag" 2>"$ERR") || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "스냅숏 목록을 읽지 못했다" false; }
+  snaps=$(restic snapshots --json --latest 1 --tag "$tag" 2>"$ERR") || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 FAILED_PRECONDITION "스냅숏 목록을 읽지 못했다" false; }
   snap=$(printf '%s' "$snaps" | sed -n 's/.*"id":"\([0-9a-f]*\)".*/\1/p' | tail -n1)
   [ -n "$snap" ] || finish failed "" 0 1 NOT_FOUND "복구할 스냅숏이 없다(태그 $tag)" false
   # 스냅숏의 하위 폴더(snap:경로)를 그 폴더에 바로 푼다: 읽기 전용 루트 파일시스템에서 상위 경로(/home 등)를 건드리지 않는다
-  out=$(restic restore "$snap:$dir" --json --target "$dir" 2>"$ERR") || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 INTERNAL "복구에 실패했다" false; }
+  out=$(restic restore "$snap:$dir" --json --target "$dir" 2>"$ERR") || { net_err && finish failed "" 0 75 UNAVAILABLE "백업 저장소에 닿지 못했다" true; finish failed "" 0 1 FAILED_PRECONDITION "복구에 실패했다" false; }
   bytes=$(printf '%s\n' "$out" | grep '"message_type":"summary"' | tail -n1 | sed -n 's/.*"total_bytes":\([0-9]*\).*/\1/p')
   if [ "$engine" = postgres ]; then pg_restore --clean --if-exists --no-owner --dbname "$(cat "$urlfile")" "$dir/dump.pgdump" 2>"$ERR" || pg_fail "되돌리기에 실패했다"; fi
   finish ok "$snap" "${bytes:-0}" 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """공개 입구의 '인증 없는 요청' 자체 점검(platform 이 아는 사실의 정본, 손 표 없음). 마운트된 영역 Exposure 선언에서 기대 행을 만들고, 띄운 공개 입구에 쿠키·토큰 없는 요청을 보내 응답을 대조한다.
 기대(RUNTIME R3.13·R3.23, CONVENTIONS 6절):
- - auth.kind=device-token: 토큰 없으면 401 + WWW-Authenticate: Bearer (realm 없음: 세션 경로와 구분된다)
+ - auth.kind=device: 인증서 없으면 403, HTTP 인증 challenge 없음
  - auth.kind=account|authenticated: /v1/ 경로는 401 + WWW-Authenticate: Bearer realm="openit" + BoundaryError(PERMISSION_DENIED); 그 밖의 GET 화면은 Accept: text/html 이면 302 /oauth2/start, html 이 아니면 401
  - 선언에 없는 /v1/ 경로: 404 BoundaryError(NOT_FOUND)
  - auth.kind=none·denied·machine-token 은 기대 행을 만들지 않는다(없는 인증을 점검할 수 없고, 상류가 답하므로 공개 입구가 정하는 응답이 아니다)
@@ -23,7 +23,7 @@ def rows(exposures):
     for e in exposures:
         for r in e["routes"]:
             kind = r["auth"]["kind"]
-            if kind not in ("device-token", "account", "authenticated"):
+            if kind not in ("device", "account", "authenticated"):
                 continue
             for p in r["paths"]:
                 if p in OPERATIONAL:
@@ -95,10 +95,10 @@ def main(argv):
         print(("PASS " if ok else "FAIL ") + what + ("" if ok else " :: " + detail))
 
     for m, p, kind in rows(exposures):
-        if kind == "device-token":
+        if kind == "device":
             st, h, b = request(base, ctx, m, p)
             wa = h.get("WWW-Authenticate", "") if h else ""
-            report(st == 401 and wa == "Bearer", f"{m} {p} (device-token) 토큰 없음 -> 401 + WWW-Authenticate: Bearer", f"{st} '{wa}'")
+            report(st == 403 and not wa and body_code(b) == "PERMISSION_DENIED", f"{m} {p} (device) 인증서 없음 -> 403 PERMISSION_DENIED", f"{st} '{wa}'")
         elif p.startswith("/v1/"):
             st, h, b = request(base, ctx, m, p)
             wa = h.get("WWW-Authenticate", "") if h else ""
