@@ -15,7 +15,13 @@ cleanup() {
   "$DOCKER" rmi "$GW_IMG" "$ING_IMG" "$IDP_IMG" "$PRX_IMG" "$DB_IMG" >/dev/null 2>&1; rm -rf "$W"
 }
 trap cleanup EXIT
-PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+# 공개 URL(발급자·콜백)에 포트가 들어가 기동 전에 정해야 한다: Docker 배정은 쓸 수 없고, 고른 포트를 Docker 로 실제 게시해 본 것만 쓴다
+# (빈 포트라도 Windows 예약 범위면 Docker 가 못 연다, 2026-11-07 교차검증). 확인 이미지는 이 리포가 digest 로 고정한 PostgreSQL 기반 이미지
+PROBE_IMG=$(sed -n 's/^ARG POSTGRES_IMAGE=//p' "$ROOT/identity/Dockerfile.db" | head -1); PORT=""
+for _t in 1 2 3 4 5 6 7 8; do _p=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+  "$DOCKER" run --rm -p "127.0.0.1:$_p:1" --entrypoint true "$PROBE_IMG" >/dev/null 2>&1 && { PORT=$_p; break; }
+done
+[ -n "$PORT" ] || { echo "Docker 가 게시할 수 있는 빈 포트를 찾지 못했다" >&2; exit 1; }
 export SECRETS_GID
 export PUBLIC_PORT=$PORT PUBLIC_URL=https://localhost:$PORT GATEWAY_HOSTS="localhost:8443"
 export IDENTITY_DIR=$ROOT/identity EXPOSURES_DIR=$ROOT/ingress/tests/exposures
