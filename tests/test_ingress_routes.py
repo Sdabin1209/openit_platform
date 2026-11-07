@@ -76,3 +76,10 @@ def test_mutation_without_the_identity_declarations_no_human_auth_routes():
 def test_error_bodies_use_the_contract_schema_version_placeholder_not_a_literal():
     r = run(ex("a", "/v1/y"))
     assert '"pipeline_schema_version":"2.0"' not in r.stdout and "$PIPELINE_SCHEMA_VERSION" in r.stdout
+
+
+def test_device_route_requires_upstream_service_credential():
+    result = run(ex("survey-service", "/v1/sessions", "device"))
+    assert result.returncode == 65 and "upstream_token" in result.stderr
+    result = run(ex("survey-service", "/v1/sessions", "device", upstream_token="survey-api-kiosk"))
+    assert result.returncode == 0 and 'header_up Authorization "Bearer ' in result.stdout

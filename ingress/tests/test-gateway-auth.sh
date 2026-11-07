@@ -239,14 +239,14 @@ for path in /v1/sessions /v1/question-sets; do
   chkpass "허용된 기기 인증서 $method $path" device "$method" "$path"
 done
 chkpass "허용된 기기 인증서 문진표 쿼리" device GET "/v1/question-sets?question_set_id=x"
-# 기계 경로(추론 서버의 릴리스 읽기, D72): 기계 토큰만 연다. 사람 OIDC 세션은 이 경로의 자격이 아니다(D7d: 예전 `not header Authorization Basic*` 조건을 세션 쿠키 기준으로 바꿨다)
-INFTOK=$(tr -d '\r\n' < "$T/tokens/gateway-inference-token")
+# 기계 경로(추론 서버의 릴리스 읽기, D72): 4.0.0 부터 공개 입구는 기계 토큰을 갖지 않는다(R3.23). 호출자가 어떤 Bearer 를 실어도 공개 입구는 대조하지 않으므로 시험용 무작위 값을 쓴다(값은 출력하지 않는다)
+INFTOK=$(python3 -c 'import secrets;print(secrets.token_hex(24))')
 chk404() { # chk404 <설명> <who> <메서드> <경로>: 내보내지 않는 경로는 404 BoundaryError(NOT_FOUND)
   local name=$1 code; shift; code=$(call "$@"); AN=$((AN+1))
   if [ "$code" = 404 ] && grep -q '"code":"NOT_FOUND"' "$T/ab.out"; then echo "  PASS $name -> 404 NOT_FOUND"; else echo "  FAIL $name -> $code '$(head -c 80 "$T/ab.out")' (기대 404 NOT_FOUND)"; FAILS=$((FAILS+1)); fi; }
 # 기계 경로(machine-token, 추론 서버의 릴리스 읽기): 3.4.7 부터 공개 입구가 내보내지 않는다. 받는 서비스가 토큰을 대조하고 compose 밖 기계 호출자는 hosts 표로 영역 게이트웨이에 바로 간다. 토큰이 맞아도 틀려도 같은 404
 chk404 "기계 경로 /v1/releases/r1/bundle: 공개 입구가 내보내지 않는다(토큰 없음)" - GET /v1/releases/r1/bundle
-chk404 "기계 경로: 맞는 기계 토큰이어도 공개 입구는 대조하지 않는다 -> 404" bearer:"$INFTOK" GET /v1/releases/r1/bundle
+chk404 "기계 경로: Bearer 를 실어도 공개 입구는 대조하지 않는다 -> 404" bearer:"$INFTOK" GET /v1/releases/r1/bundle
 AN=$((AN+2))
 c=$(call "trainer-e2e; _openit_session=x" GET /v1/releases/r1/bundle)   # 쿠키 머리글 값에 진짜 세션 쿠키 이름도 싣는다(가짜 인증은 fakeauth 만 읽는다)
 [ "$c" = 404 ] && echo "  PASS 사람 OIDC 세션(승인자)이 기계 경로 /v1/releases/* 로 오면 404(401 도 통과도 아니다)" || { echo "  FAIL 사람 세션의 기계 경로 -> $c (기대 404)"; FAILS=$((FAILS+1)); }

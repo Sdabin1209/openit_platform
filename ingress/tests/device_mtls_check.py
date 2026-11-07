@@ -45,9 +45,10 @@ def request(connection, headers=None, path="/v1/sessions"):
     response = connection.getresponse()
     data = response.read()
     body = json.loads(data)
-    if response.status in (403, 503):
+    if response.status in (401, 403, 503):
         validator("BoundaryError").validate(body)
-    assert not response.getheader("WWW-Authenticate"), "device credentials have no HTTP challenge"
+    if not path.startswith("/v1/staff/"):
+        assert not response.getheader("WWW-Authenticate"), "device credentials have no HTTP challenge"
     return response.status, body
 
 
@@ -70,9 +71,15 @@ try:
     assert request(plain, {"Authorization": "Bearer retired-device-token", "X-Openit-Device": "kiosk-1"})[0] == 403
     status, body = request(active, {"X-Openit-Device": "forged", "X-Openit-Dn": "CN=forged"})
     assert status == 200
+    credentials = body["headers"].get("Authorization", [])
+    assert len(credentials) == 1 and credentials[0].startswith("Bearer ") and len(credentials[0]) > 7, "upstream Bearer credential missing"
     assert request(active, path="/v1/question-sets?question_set_id=test")[0] == 200
     assert body["headers"]["X-Openit-Device"] == ["kiosk-1"]
     assert "X-Openit-Dn" not in body["headers"]
+    assert request(plain, {"X-Openit-Device": "forged"}, path="/v1/staff/alerts")[0] == 401
+    status, staff = request(plain, {"Cookie": "fakeauth=staff-e2e", "X-Openit-Device": "forged", "X-Openit-Dn": "CN=forged"}, path="/v1/staff/alerts")
+    assert status == 200 and staff["headers"]["X-Openit-User"] == ["staff-e2e"]
+    assert "X-Openit-Device" not in staff["headers"] and "X-Openit-Dn" not in staff["headers"]
     assert request(rotated)[0] == 403
     replace([old, new])
     assert request(rotated)[0] == 200 and request(active)[0] == 200

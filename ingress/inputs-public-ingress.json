@@ -59,15 +59,6 @@
         },
         {
           "path_env": null,
-          "path": "/run/secrets/gate-read-model-serving",
-          "directory": false,
-          "kind": "secret",
-          "schema": null,
-          "required": true,
-          "opened_by": "start-process"
-        },
-        {
-          "path_env": null,
           "path": "/run/secrets/gate-read-operator",
           "directory": false,
           "kind": "secret",
@@ -96,33 +87,6 @@
         {
           "path_env": null,
           "path": "/run/secrets/gate-write-release-approver",
-          "directory": false,
-          "kind": "secret",
-          "schema": null,
-          "required": true,
-          "opened_by": "start-process"
-        },
-        {
-          "path_env": null,
-          "path": "/run/secrets/gateway-inference-token",
-          "directory": false,
-          "kind": "secret",
-          "schema": null,
-          "required": true,
-          "opened_by": "start-process"
-        },
-        {
-          "path_env": null,
-          "path": "/run/secrets/gateway-registry-publish-token",
-          "directory": false,
-          "kind": "secret",
-          "schema": null,
-          "required": true,
-          "opened_by": "start-process"
-        },
-        {
-          "path_env": null,
-          "path": "/run/secrets/model-registry-write-model-lab",
           "directory": false,
           "kind": "secret",
           "schema": null,

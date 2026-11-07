@@ -73,6 +73,9 @@ def gen(exposures):
     for e in exposures:
         for r in e["routes"]:
             kind = r["auth"]["kind"]
+            if kind == "device" and not r.get("upstream_token"):
+                print("device 경로에는 upstream_token이 필요하다: " + e["service"], file=sys.stderr)
+                raise SystemExit(65)
             if kind == "denied":
                 continue   # 거부 선언은 경로를 만들지 않는다: 선언이 없는 경로는 아래 바닥 규칙(404)이다. 같은 경로를 다른 영역이 열었으면 그 선언이 서비스한다(HTTP.md I1)
             for p in r["paths"]:
