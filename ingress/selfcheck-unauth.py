@@ -70,7 +70,7 @@ def main(argv):
             i += 1
             while i < len(args) and not args[i].startswith("--"): dirs.append(args[i]); i += 1
         else: print("알 수 없는 인자: " + args[i], file=sys.stderr); return 2
-    from boundary_contracts import validator
+    from boundary_contracts import BoundaryError, strict_json, validate
     files = []
     for d in (dirs or DEFAULT):
         p = pathlib.Path(d)
@@ -79,9 +79,10 @@ def main(argv):
         print("Exposure 선언이 없다", file=sys.stderr); return 2
     exposures = []
     for f in files:
-        d = json.loads(f.read_text(encoding="utf-8"))
-        errs = list(validator("Exposure").iter_errors(d))
-        if errs:
+        try:
+            d = strict_json.loads(f.read_text(encoding="utf-8"))
+            validate("Exposure", d)
+        except BoundaryError:
             print(f"{f.name}: Exposure 선언이 계약을 어겼다", file=sys.stderr); return 2
         exposures.append(d)
     if not cafile:

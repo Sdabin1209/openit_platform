@@ -5,13 +5,10 @@ import re, sys
 sites = len(sys.argv) > 2 and sys.argv[1] == "--sites"
 raw = sys.argv[-1]
 names, addrs = [], []
+# 형식 검사는 하지 않는다: 값은 entrypoint 가 계약 PublicIngressEnv(envcheck)로 먼저 검증했다(D117, R7 '낸 값은 받는 쪽이 다시 검증하지 않는다'). 여기서는 나누기만 한다
 for h in re.split(r"\s*,\s*", raw.strip()):
-    if not re.fullmatch(r"[A-Za-z0-9.-]+(:[0-9]{1,5})?", h):
-        sys.exit("GATEWAY_HOSTS 항목 형식 위반")
     addrs.append(h)
     name = h.partition(":")[0]
-    if not re.fullmatch(r"[A-Za-z0-9.-]+", name):
-        sys.exit("GATEWAY_HOSTS 항목의 호스트 이름 규칙 위반(영문·숫자·.·- 만)")
     if name not in names:
         names.append(name)
 print(", ".join(addrs) if sites else ", ".join('"%s"' % n for n in names))

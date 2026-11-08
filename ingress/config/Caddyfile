@@ -42,11 +42,11 @@ http://:8080 {
 # HTTPS 사이트(컨테이너 8443). 사이트 이름 목록은 GATEWAY_HOSTS(DNS 이름만, IP 리터럴은 계약이 막는다. 예: localhost:8443). 운영에서는 설치처의 내부 도메인을 적는다(예: kiosk.example.internal:8443).
 {$GATEWAY_SITES}, {$GATEWAY_PROBE_SITE} {   # 뒤의 사이트 이름은 같은 서버의 감시가 부르는 이름이다(GATEWAY_PROBE_SITE, ADR 0060)
 	import gateway_tls   # 인증서 출처는 GATEWAY_TLS_MODE(internal|files|acme)가 고른다: config/gateway-tls/<모드>.caddy. 이 파일을 손으로 고치지 않는다
-	# 기기 ID = 검증된 클라이언트 인증서 주체(RFC 2253 문자열, 예: CN=kiosk-1,O=...)의 CN. 형식 ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ 를 만족할 때만 기기로 본다(아니면 기기 인증 실패).
+	# 기기 ID = 검증된 클라이언트 인증서 주체(RFC 2253 문자열, 예: CN=kiosk-1,O=...)의 CN. 형식(DEVICE_ID_RE: 계약 DeviceAllowlist 의 device_id 패턴에서 entrypoint 가 만든다)을 만족할 때만 기기로 본다(아니면 기기 인증 실패).
 	# Caddy 에는 CN 만 내는 플레이스홀더가 없어, 주체 전체를 내부 헤더 X-Openit-Dn 에 항상 덮어쓰고(클라이언트가 보낸 값은 이 줄이 대체한다: 접두어 dn= 때문에 값이 비어 지워질 일이 없다)
 	# header_regexp 의 이름 있는 캡처(re.devcn.1)로 CN 을 꺼낸다. X-Openit-Dn 은 서비스로 가기 전에 지운다. 인증서 자체의 신뢰 검증은 TLS 핸드셰이크(client_auth)가 한다.
 	request_header X-Openit-Dn "dn={http.request.tls.client.subject}"
-	@device_cert header_regexp devcn X-Openit-Dn ^dn=(?:.*,)?CN=([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:,|$)
+	@device_cert header_regexp devcn X-Openit-Dn ^dn=(?:.*,)?CN=({$DEVICE_ID_RE})(?:,|$)
 	# 접근 로그: 요청 본문은 남기지 않는다(Caddy는 본문을 기록하지 않는다). Authorization 헤더는 Caddy가 REDACTED로 바꾼다.
 	log {
 		output stdout

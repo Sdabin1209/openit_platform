@@ -5,7 +5,7 @@
 이미지 안에서는 entrypoint.sh 가 부른다(입력은 Dockerfile 머리말). 사용: gen-area-gateway-config.py --exposure <Exposure JSON 파일> --upstream <host:port> [--cert F --key F] [--ingress-port 443 --egress-port 3128] > envoy.yaml
 입력은 Exposure 계약 스키마로 검증한다(CONVENTIONS 3절). 비밀 값 없음."""
 import argparse, copy, json, re, sys
-from boundary_contracts import validator
+from boundary_contracts import BoundaryError, strict_json, validate, validator
 from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 오류 본문의 스키마 버전은 계약 패키지의 현행 값이다(박지 않는다)
 
 DENIED = {"pipeline_schema_version": PSV, "code": "PERMISSION_DENIED", "message": "EGRESS_DENIED", "retryable": False, "details": {"reason": "EGRESS_DENIED"}}
@@ -25,6 +25,10 @@ def allowed_authorities(egress):
     return sorted(set(exact)), public
 
 
+# 왜 여기에 값이 있나: 이 두 기본값은 계약 CONVENTIONS '시간 상한 사슬' 표(산문)에만 있고 스키마에 기계가 읽는 칸이 없다(계약 5.0.0).
+# 사본이 어긋나지 않게 tests/test_contract_defaults.py 가 고정 태그의 CONVENTIONS 표와 대조한다. 칸 요청: docs/change-requests/2026-11-08-exposure-machine-readable-defaults.md
+HEADER_CHAIN_MS = {"release-gate": 180000, "question-authoring": 120000, "ops-feedback": 60000}   # 서비스별 응답 헤더 대기 기본(ms)
+DEFAULT_HEADER_MS = 55000   # 표에 없는 환자·직원 경로
 DEFAULT_MAX_BODY = 8 * 1024 * 1024   # 계약: Exposure.routes[].max_body_bytes 가 없으면 8MiB(RUNTIME R3.5, 3.4.7)
 
 
@@ -36,8 +40,7 @@ def route_action(exposure, declaration, cluster):
     # CONVENTIONS 시간 상한 사슬: 서버 마감보다 긴 헤더 대기.
     # 실측값이 아니라 계약의 시작값이다. Envoy timeout은 전체 응답이므로
     # 0으로 두고 최초 시도의 헤더 대기는 per_try_timeout으로 분리한다.
-    default_header = {"release-gate": 180000, "question-authoring": 120000,
-                      "ops-feedback": 60000}.get(exposure["service"], 55000)
+    default_header = HEADER_CHAIN_MS.get(exposure["service"], DEFAULT_HEADER_MS)
     t = declaration.get("timeouts_ms", {})
     dial = t.get("dial", 1000)
     header = t.get("response_header", default_header)
@@ -218,10 +221,11 @@ def main(argv):
     a = ap.parse_args(argv)
     if not validator("_common#/$defs/LoopbackHostPort").is_valid(a.upstream):
         sys.exit("upstream 은 host:port 여야 한다")
-    exposure = json.load(open(a.exposure, encoding="utf-8"))
-    errs = list(validator("Exposure").iter_errors(exposure))
-    if errs:
-        sys.exit("Exposure 선언이 계약을 어겼다: " + errs[0].message[:200])
+    try:
+        exposure = strict_json.loads(open(a.exposure, encoding="utf-8").read())   # 계약 JSON 공통 규칙
+        validate("Exposure", exposure)
+    except BoundaryError as e:   # 오류에 값을 싣지 않는다(INTERFACES I7): 스키마 위치와 키워드만
+        sys.exit("Exposure 선언이 계약을 어겼다: %s" % (e.details,))
     ru = {}
     for x in a.route_upstream:
         pre, _, hp = x.partition("=")

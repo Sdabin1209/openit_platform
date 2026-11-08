@@ -12,9 +12,10 @@ die() { echo "build-image: $*" >&2; exit 1; }
 VARS=$("$PYTHON" - "$1" <<'PY'
 import json, shlex, sys
 from boundary_contracts import validator
+from boundary_contracts.schemas_api import safe_error   # 값 없는 진단(INTERFACES I7): 메시지에 선언 값이 섞이지 않게
 req = json.load(open(sys.argv[1], encoding="utf-8"))
 errs = list(validator("BuildImageRequest").iter_errors(req))
-if errs: sys.exit("build-image: BuildImageRequest 를 어긴 요청: " + errs[0].message[:200])
+if errs: sys.exit("build-image: BuildImageRequest 를 어긴 요청: " + str(safe_error(errs[0])))
 VAR = {"": ("area-gateway", "area-gateway"), "public-ingress": ("ingress", "public-ingress"), "monitoring": ("monitoring", "monitoring"), "backup-store": ("backup-store", "backup-store"), "step-ca": ("pki", "step-ca"), "identity": ("identity", "identity", "Dockerfile"), "identity-proxy": ("identity", "identity-proxy", "Dockerfile.proxy"), "identity-db": ("identity", "identity-db", "Dockerfile.db")}
 v = req.get("variant") or ""
 if v not in VAR: sys.exit("build-image: 이 영역은 variant 를 모른다: " + v)
@@ -30,6 +31,7 @@ inputs_label() {   # inputs_label <선언 파일> <이미지 이름> -> 한 줄 
   "${PYTHON:-${PY:-python3}}" -c '
 import json, sys
 from boundary_contracts import validator
+from boundary_contracts.schemas_api import safe_error
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 if d.get("image") != sys.argv[2]:
     sys.exit("%s 의 image(%s)가 이미지 이름 %s 와 다르다" % (sys.argv[1], d.get("image"), sys.argv[2]))
@@ -71,9 +73,10 @@ EXPARGS=(); if [ -f "$CTX/exposure-$SERVICE.json" ]; then
   EXPJSON=$("$PYTHON" - "$CTX/exposure-$SERVICE.json" "$SERVICE" <<'PY'
 import json, sys
 from boundary_contracts import validator
+from boundary_contracts.schemas_api import safe_error
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 errs = list(validator("Exposure").iter_errors(d))
-if errs or d.get("service") != sys.argv[2]: sys.exit("build-image: 노출 선언이 계약 Exposure 를 어기거나 service 가 게시 이름과 다르다: " + (errs[0].message[:150] if errs else d.get("service", "")))
+if errs or d.get("service") != sys.argv[2]: sys.exit("build-image: 노출 선언이 계약 Exposure 를 어기거나 service 가 게시 이름과 다르다: " + (str(safe_error(errs[0])) if errs else d.get("service", "")))
 print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
 PY
   ) || exit 1
@@ -84,9 +87,10 @@ if [ -f "$CTX/jobs-$SERVICE.json" ]; then
   JOBSJSON=$("$PYTHON" - "$CTX/jobs-$SERVICE.json" <<'PY'
 import json, sys
 from boundary_contracts import validator
+from boundary_contracts.schemas_api import safe_error
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 errs = list(validator("JobsDeclaration").iter_errors(d))
-if errs: sys.exit("build-image: 잡 선언이 계약 JobsDeclaration 을 어겼다: " + errs[0].message[:150])
+if errs: sys.exit("build-image: 잡 선언이 계약 JobsDeclaration 을 어겼다: " + str(safe_error(errs[0])))
 print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
 PY
   ) || exit 1
@@ -100,10 +104,11 @@ inputs_check "$IMAGE_TAG" "$INPUTS" || exit 1
 "$DOCKER" image inspect "$IMAGE_TAG" | "$PYTHON" -c '
 import json, sys
 from boundary_contracts import validator
+from boundary_contracts.schemas_api import safe_error
 img = json.load(sys.stdin)[0]
 labels = {k: v for k, v in (img["Config"].get("Labels") or {}).items() if k.startswith("io.openit.")}
 if labels.get("io.openit.service") != sys.argv[2]: sys.exit("build-image: 라벨 io.openit.service(%s)가 기대 %s 와 다르다" % (labels.get("io.openit.service"), sys.argv[2]))
 res = {"image": sys.argv[1], "image_id": img["Id"], "labels": labels}
 errs = list(validator("BuildImageResult").iter_errors(res)) + list(validator("ImageLabels").iter_errors(labels))
-if errs: sys.exit("build-image: 결과가 계약을 어겼다: " + errs[0].message[:200])
+if errs: sys.exit("build-image: 결과가 계약을 어겼다: " + str(safe_error(errs[0])))
 print(json.dumps(res, ensure_ascii=False, separators=(",", ":")))' "$IMAGE_TAG" "$SERVICE"

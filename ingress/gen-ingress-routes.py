@@ -13,7 +13,7 @@ PENDING = PERM("account pending approval", ',"details":{"reason":"ACCOUNT_PENDIN
 NOTFOUND = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}'
 TOO_LARGE = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":%d}}'
 OPERATIONAL = {"/healthz", "/readyz", "/metrics"}
-DEFAULT_MAX_BODY = 8 * 1024 * 1024
+DEFAULT_MAX_BODY = 8 * 1024 * 1024   # 계약 Exposure.routes[].max_body_bytes 설명의 8MiB(8388608). 스키마에 default 칸이 없어 값을 갖고, tests/test_contract_defaults.py 가 계약 설명과 대조한다
 
 
 def secs(ms):
@@ -160,7 +160,7 @@ def gen(exposures):
 
 
 def load(args):
-    from boundary_contracts import validator
+    from boundary_contracts import BoundaryError, strict_json, validate
     files = []
     for a in args:
         p = pathlib.Path(a)
@@ -169,10 +169,11 @@ def load(args):
         sys.exit("Exposure 선언이 없다")
     ex = []
     for f in files:
-        d = json.loads(f.read_text(encoding="utf-8"))
-        errs = list(validator("Exposure").iter_errors(d))
-        if errs:
-            sys.exit("%s: Exposure 선언이 계약을 어겼다: %s" % (f.name, errs[0].message[:200]))
+        try:
+            d = strict_json.loads(f.read_text(encoding="utf-8"))   # 이웃 영역이 쓴 선언: 계약 JSON 공통 규칙을 지난다
+            validate("Exposure", d)
+        except BoundaryError as e:   # 오류에 값을 싣지 않는다(INTERFACES I7): 스키마 위치와 키워드만
+            sys.exit("%s: Exposure 선언이 계약을 어겼다: %s" % (f.name, e.details))
         ex.append(d)
     return ex
 

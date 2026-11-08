@@ -14,16 +14,18 @@ import socketserver
 from http.server import BaseHTTPRequestHandler
 
 from jsonschema import Draft202012Validator
-from boundary_contracts import BoundaryError, validator
+from boundary_contracts import BoundaryError, format_checker, strict_json, validator
+from boundary_contracts.schemas_api import ContractValidator
 
 _INPUT = json.loads((Path(__file__).parent / "schemas" / "DeviceAuthRequest.json").read_text())
-_INPUT_VALIDATOR = Draft202012Validator(_INPUT)
+# 왜 감싸나: 영역 내부 스키마(DeviceAuthRequest)용 계약 검증기가 5.0.0 에는 없다(5.0.1 schema_validator 로 바꾼다). 감싸야 NaN·무한대 검사와 형식 검사를 받는다.
+_INPUT_VALIDATOR = ContractValidator(Draft202012Validator(_INPUT, format_checker=format_checker(_INPUT)))
 _ALLOWLIST_VALIDATOR = validator("DeviceAllowlist")
 _DEVICE_ID_VALIDATOR = validator(_INPUT["properties"]["device_id"]["x-contract"])
 
 
 def load_allowlist(path: Path) -> dict[str, set[str]]:
-    document = json.loads(path.read_text(encoding="utf-8"))
+    document = strict_json.loads(path.read_text(encoding="utf-8"))   # 계약 JSON 공통 규칙(깊이 64·1 MiB·I-JSON): 허용 목록은 deploy 가 쓴 파일이다
     _ALLOWLIST_VALIDATOR.validate(document)
     result: dict[str, set[str]] = {}
     for entry in document["devices"]:

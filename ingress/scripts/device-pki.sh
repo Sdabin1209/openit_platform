@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # !! 시험·데모 전용 !! 키오스크 기기 인증서용 일회용 CA 와 기기 인증서를 만든다(openssl). 운영에는 쓰지 않는다: 운영의 인증서 발급·갱신·폐기는 조직 PKI/MDM 몫이다(D113, ADR 0040).
 # 사용: device-pki.sh init                  state/device-pki/ca.key(600), ca.crt 를 만든다(이미 있으면 거부)
-#       device-pki.sh issue <기기 ID>       state/device-pki/<ID>.key(600), <ID>.crt 를 만든다. 기기 ID 는 주체 CN 이 되고 ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ 이어야 한다(계약 PUBLIC_API F절)
+#       device-pki.sh issue <기기 ID>       state/device-pki/<ID>.key(600), <ID>.crt 를 만든다. 기기 ID 는 주체 CN 이 되고 계약 DeviceAllowlist 의 device_id 패턴을 만족해야 한다(PUBLIC_API F절)
 #       device-pki.sh gateway-config        공개 입구가 쓸 기기 CA 파일 device-ca.pem 을 만들고 INGRESS_DEVICE_CA_FILE 로 마운트하는 법을 안내한다
 # 환경: DEVICE_PKI_DIR(기본 state/device-pki). 키 파일은 권한 600이고 폴더는 700이다. state/ 는 .gitignore 라 리포에 들어가지 않는다. 키 값은 출력하지 않는다.
 set -euo pipefail
@@ -17,7 +17,7 @@ case "${1:-}" in
     chmod 600 "$D/ca.key"; chmod 644 "$D/ca.crt"   # CA 인증서는 공개 값이다: 컨테이너(비루트)가 INGRESS_DEVICE_CA_FILE 로 읽는다
     echo "일회용 CA 를 만들었다(유효 30일): $D/ca.crt";;
   issue)
-    ID=${2:?기기 ID}; [[ "$ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] || die "기기 ID 형식 위반: $ID"
+    ID=${2:?기기 ID}; [[ "$ID" =~ ^($("$PY" "$ROOT/ingress/gen-device-id-re.py"))$ ]] || die "기기 ID 형식 위반: $ID"
     [ -f "$D/ca.key" ] || die "먼저 init: $0 init"; banner
     ( umask 077
       openssl req -newkey rsa:2048 -nodes -keyout "$D/$ID.key" -out "$D/$ID.csr" -subj "/O=openit TEST ONLY/CN=$ID" 2>/dev/null

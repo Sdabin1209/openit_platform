@@ -13,6 +13,7 @@
 - `ingress/tests/test-gateway-faults.sh`(R2.1 앱 응답 보존·R3.5 413·R3.6 431/414·R3.1/R3.2 상류 멈춤 503+Retry-After·R4.1 복구·R3.3 504)와 `ingress/tests/test-device-mtls.sh`(기기 인증서 mTLS, PUBLIC_API F절): 둘 다 `tests/test_ingress_shell.py` 로 test 줄기에 오르고 변이(503 매핑 제거, 413 상한 해제, 다른 CA 를 기기 CA 로 주는 mTLS 변이)가 실패하는지도 본다.
 - `ingress/tests/test-gateway-auth.sh`: 공개 입구(가짜 oauth2-proxy) 인증 계약, R3.12, R10.4, 431/414.
 - `identity/tests/test-idp-smoke.sh`: 실제 Keycloak·oauth2-proxy 로그인·역할·승인 대기·가입 승인.
+- Go 시험(`common/envcheck`): `bash scripts/go-test.sh`(Docker 필요, 호스트 go 불필요).
 - 감시·백업 저장소·인증서 발급(step-ca): `tests/test_monitoring.py`, `tests/test_backup_store.py`, `tests/test_step_ca.py`(Docker 필요). 배포 입력은 `docs/COMPONENTS.md`.
 
 ## ADR
@@ -29,3 +30,4 @@
 - [0015 step-ca 역할은 환경 변수로 고른다(0012 일부 대체)](docs/adr/0015-step-ca-role-by-env.md)
 - [0016 기기 허용 목록 ADR 보완(0013 Nygard 항목)](docs/adr/0016-device-allowlist-nygard-supplement.md)
 - [0017 영역 게이트웨이 시간 시험은 정적으로(0014 검증 방법 대체)](docs/adr/0017-area-gateway-timeout-tests-static.md)
+- [0018 계약 5.0.0 반영: 사본은 계약에서 읽거나 대조한다](docs/adr/0018-contract-5-adoption.md)

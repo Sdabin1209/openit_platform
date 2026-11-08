@@ -24,6 +24,7 @@ if [ "$GATEWAY_TLS_MODE" = files ]; then [ -r "$INGRESS_TLS_DIR/tls.crt" ] && [ 
 /opt/gw/bin/python /usr/local/bin/device-auth.py "$INGRESS_DEVICE_ALLOWLIST_FILE" --check || exit 65
 # 파생 값은 이미지가 만든다: 오류 본문의 pipeline_schema_version(계약 패키지 현행 값)과 CSRF 허용 호스트 목록(GATEWAY_HOSTS 에서)
 export PIPELINE_SCHEMA_VERSION=$(/opt/gw/bin/python -c 'import boundary_contracts as b;print(b.PIPELINE_SCHEMA_VERSION)')
+export DEVICE_ID_RE=$(/opt/gw/bin/python /usr/local/bin/gen-device-id-re.py) || exit 65   # 기기 ID 식은 계약 DeviceAllowlist 의 패턴에서 낸다(Caddyfile 에 사본을 두지 않는다)
 export GATEWAY_SITES=$(/opt/gw/bin/python /usr/local/bin/gen-host-names.py --sites "$GATEWAY_HOSTS") || exit 65   # Caddy 사이트 주소 목록(쉼표 뒤 공백 정규화)
 export GATEWAY_HOST_NAMES=$(/opt/gw/bin/python /usr/local/bin/gen-host-names.py "$GATEWAY_HOSTS") || exit 65
 export_root_loop() { # 루트는 첫 기동 때 /data 에 생기고 CA 가 바뀌면 달라진다: 생기거나 바뀔 때마다 같은 폴더에 쓰고 rename 으로 바꿔 넣는다(쓰는 도중 파일을 읽히지 않는다). 점검 주기 5초는 측정하지 않은 값이다

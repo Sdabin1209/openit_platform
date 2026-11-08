@@ -23,7 +23,7 @@
 - 신원 헤더 규칙은 생성 경로 전체와 정적 프록시에 적용하고, 역할 헤더 누락 변이를 거부한다. 폐기 QA_USER_ROLES는 다른 영역의 설정 사본 대신 설치된 소유자 Env 계약의 이름 제한으로 검사한다.
 - HTTP/TLS 건강 확인 및 readiness의 현재 JSON 응답은 HealthStatus로 검사하고 본문 변이를 거부한다. 감시 설정은 현재 `monitoring/config/blackbox.yml.tmpl`의 두 모듈을 검사한다. 실제 소비자의 빈 200 거부는 기존 `tests/test_monitoring.py::test_static_servers_probe_readyz_only_and_body_is_checked`가 검증한다. 다른 영역 소유 E2E 파일을 플랫폼에서 읽지 않는다.
 - 관련 정적·생성기·기기 시험 29 pass(14.57s). `/config.json` 실제 공개 경로 통합 시험은 최종 계약 핀과 함께 별도로 실행한다.
-- Go 시험: 미실행(호스트 도구 없음). 이미지의 Go 빌드 단계는 `go build`만 실행하고 `go test`는 실행하지 않는다. 과거 별도 빌더에서의 수동 실행은 표준 명령에 연결된 검증과 구분한다.
+- Go 시험(`common/envcheck`): 호스트에 go 가 없어 `bash scripts/go-test.sh` 가 이미지 빌드와 같은 digest 의 Go 빌더 컨테이너로 `go test ./...` 를 돌린다(2026-11-08 rc 0 확인). 이미지의 Go 빌드 단계는 `go build`만 실행한다. identity/entry 에는 Go 시험이 없다.
 
 ## node_exporter 지표 단언 복구 (2026-11-08)
 
