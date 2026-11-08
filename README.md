@@ -9,7 +9,7 @@
 공개 입구: `bash scripts/build-image.sh`(variant `public-ingress`), 경로 표는 마운트된 Exposure 에서 생성(ADR 0002). 사람 인증: `identity/`(ADR 0003). 입력과 장애 영향: `docs/boundary.md`.
 
 ## 5. 시험 상태 (WSL2 한 환경에서만 확인, 두 번째 환경은 아직)
-- `tests/test_area_gateway.py`(Docker 필요, 지금 빌드한 이미지로): 영역 게이트웨이 11건. `tests/test_ingress_routes.py`: 경로 표 생성 규칙 6건.
+- `tests/test_area_gateway.py`(Docker 필요, 지금 빌드한 이미지로): 영역 게이트웨이. `tests/test_ingress_routes.py`: 경로 표 생성 규칙. 시험 개수는 적지 않는다(`pytest --collect-only -q` 가 정본이고 문서에 쓰면 어긋난다).
 - `ingress/tests/test-gateway-faults.sh`(R2.1 앱 응답 보존·R3.5 413·R3.6 431/414·R3.1/R3.2 상류 멈춤 503+Retry-After·R4.1 복구·R3.3 504)와 `ingress/tests/test-device-mtls.sh`(기기 인증서 mTLS, PUBLIC_API F절): 둘 다 `tests/test_ingress_shell.py` 로 test 줄기에 오르고 변이(503 매핑 제거, 413 상한 해제, 다른 CA 를 기기 CA 로 주는 mTLS 변이)가 실패하는지도 본다.
 - `ingress/tests/test-gateway-auth.sh`: 공개 입구(가짜 oauth2-proxy) 인증 계약, R3.12, R10.4, 431/414.
 - `identity/tests/test-idp-smoke.sh`: 실제 Keycloak·oauth2-proxy 로그인·역할·승인 대기·가입 승인.
@@ -24,4 +24,5 @@
 - [0012 인증서 발급](docs/adr/0012-step-ca-entrypoint-subcommands.md)
 - [0004 사람 인증 이미지: 공식 이미지 위의 얇은 이미지](docs/adr/0004-identity-images-thin-over-official.md)
 - [0005 환경 검증: envcheck](docs/adr/0005-envcheck-contract-env-validation.md)
+- [0013 계약 4: 기기 허용 목록과 사용자 ID](docs/adr/0013-계약-4-기기-허용목록과-사용자-ID.md)
 - [0014 영역 게이트웨이 시간 제한](docs/adr/0014-area-gateway-exposure-timeouts.md)

@@ -243,12 +243,16 @@ def test_application_503_body_and_retry_header_are_preserved(stack):
     assert "server:" not in headers.lower()
 
 
+def curl_seconds(result):
+    # 왜 curl 이 잰 시간인가: docker run 의 컨테이너 시작 시간(부하에 따라 수 초)이 게이트웨이 시간 한도 단언에 섞이면 안 된다. curl 의 write-out %{stderr} 로 요청 시간만 stderr 에 받는다
+    return float(result.stderr.strip().splitlines()[-1])
+
+
 def timed_request(stack, gateway, path, budget):
-    started = time.monotonic()
     result = sh("docker", "run", "--rm", "--network", stack["net"], CURL,
-                "-sk", "--max-time", str(budget), "-i", f"https://{gateway}{path}",
+                "-sk", "--max-time", str(budget), "-i", "-w", "%{stderr}%{time_total}", f"https://{gateway}{path}",
                 check=False, timeout=budget + 15)
-    return result, time.monotonic() - started
+    return result, curl_seconds(result)
 
 
 def test_declared_header_timeout_is_enforced_without_retry(stack):
@@ -290,8 +294,7 @@ def test_client_envoy_headers_cannot_override_the_declared_timeout(stack):
     exposure = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
                 "timeouts_ms": {"dial": 10, "response_header": 200}}]}
     start_gw(stack, "header-override", exposure)
-    started = time.monotonic()
-    result = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "-i", "--max-time", "8",
+    result = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "-i", "--max-time", "8", "-w", "%{stderr}%{time_total}",
                 "-H", "x-envoy-upstream-rq-timeout-ms: 999999",
                 "-H", "x-envoy-upstream-rq-per-try-timeout-ms: 999999",
                 "-H", "x-envoy-expected-rq-timeout-ms: 999999",
@@ -300,7 +303,7 @@ def test_client_envoy_headers_cannot_override_the_declared_timeout(stack):
                 "https://header-override/delay-header/1", check=False)
     assert result.returncode == 0, result.stderr
     assert " 504 " in result.stdout, result.stdout
-    assert time.monotonic() - started < 3
+    assert curl_seconds(result) < 3
     headers, _, body = result.stdout.replace("\r\n", "\n").partition("\n\n")
     from boundary_contracts import validator
     normalized = dict(line.split(": ", 1) for line in headers.lower().splitlines()[1:] if ": " in line)

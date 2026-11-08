@@ -5,7 +5,7 @@
 모두 비루트, 읽기 전용 루트(`--read-only`), `--cap-drop ALL`, `no-new-privileges`. 빌드: `bash scripts/build-image.sh <요청>`(variant `monitoring|backup-store|step-ca`). 라벨 `io.openit.*` 는 BuildImageResult 로 검증된다. 비밀 값은 파일로만 받는다.
 
 ## monitoring (uid 65534, ADR 0010)
-한 이미지, 컨테이너마다 역할 인자 하나. 이미지 안 설정 점검: `docker run <이미지> check`.
+한 이미지, 컨테이너마다 역할 하나(환경 `MONITORING_ROLE`). 이미지 안 설정 점검: `docker run <이미지> check`.
 | 역할 | 포트 | 마운트 | 비고 |
 |---|---|---|---|
 | prometheus | 9090 | `/prometheus`(rw 볼륨 또는 tmpfs uid 65534), `/etc/openit/pki/root_ca.crt`(ro), `/etc/openit/monitoring/targets/`(ro: `metrics.yml` `readyz.yml` `public.yml` `gate.yml`, file_sd, 비면 `[]`) | 환경 `PROMETHEUS_RETENTION`(15d). 네트워크 별칭 `alertmanager`·`blackbox-exporter`·`json-exporter`·`node-exporter` 를 이름으로 찾는다 |
@@ -21,12 +21,12 @@ targets 파일 형식: `metrics.yml` 은 `- targets: ['<서비스>:443']`, `read
 - 자격·TLS 가 없으면 종료 코드 2 로 시작하지 않는다.
 
 ## step-ca (uid 1000 `step`, ADR 0012)
-| 부명령 | 마운트 | 환경 |
+| 역할(`STEP_ROLE`) | 마운트 | 환경 |
 |---|---|---|
 | `serve`(기본) | `/home/step`(rw 볼륨, 키 있음, 소유자 1000), `/run/secrets/step-ca-password`(ro), `/tmp` tmpfs **exec 허용** | `STEP_CA_PORT`(9000) `STEP_CA_DNS_NAMES`(공백 구분) |
 | `root` | `/home/step`(ro, CA 볼륨), `/out`(rw) | `PKI_OUT` |
-| `token <이름>...` | `/tokens`(rw), `/etc/openit/pki/root_ca.crt`(ro), `/run/secrets/step-ca-password`(ro), `/tmp` | `STEP_CA_URL`(기본 `https://step-ca:$PORT`) |
-| `cert <이름>` | `/certs`(rw, 소유자 1000), `/tokens`(ro), `/etc/openit/pki`(ro), `/tmp` | `STEP_CERT_NOT_AFTER` `STEP_RENEW_EXPIRES_IN`(기본 12h) |
+| `token` | `/tokens`(rw), `/etc/openit/pki/root_ca.crt`(ro), `/run/secrets/step-ca-password`(ro), `/tmp` | `STEP_TOKEN_NAMES`(공백 구분) `STEP_CA_URL`(기본 `https://step-ca:$PORT`) |
+| `cert` | `/certs`(rw, 소유자 1000), `/tokens`(ro), `/etc/openit/pki`(ro), `/tmp` | `STEP_CERT_NAME` `STEP_CERT_NOT_AFTER` `STEP_RENEW_EXPIRES_IN`(기본 12h) |
 HEALTHCHECK 는 이미지에 있다(CA 는 `step ca health`, 인증서 컨테이너는 만료 포함 검증).
 
 ## public-ingress 자체 점검 명령
@@ -39,11 +39,7 @@ HEALTHCHECK 는 이미지에 있다(CA 는 `step ca health`, 인증서 컨테이
 internal 모드의 공개 입구는 자기 사설 CA 의 루트 인증서(공개)를 `INGRESS_ROOT_EXPORT_DIR`(기본 `/etc/openit/root-out`, deploy 가 연결하는 쓰기 가능한 출력 마운트)에 `root_ca.crt` 로 쓴다 — 루트가 생기거나 바뀔 때마다 같은 폴더에 쓰고 `rename` 으로 바꿔 넣는다(5초 주기로 확인, 측정하지 않은 값). 폴더에 쓸 수 없으면 시작하지 않는다(종료 64). 부명령이나 이미지 안 경로에 기대지 않는다. 감시는 이 파일을 step-ca 루트와 이어 붙인 한 파일(여러 PEM 허용)을 `MONITORING_ROOT_CA` 로 받는다. 시험: `ingress/tests/test-gateway-auth.sh`(내보낸 루트로 인증서 검증, 쓸 수 없는 폴더는 종료 64), `tests/test_env_contract.py`.
 
 ## monitoring node 역할의 입력 (스키마 밖의 마운트)
-`node`: `/host`(호스트 `/` 읽기 전용: 파일시스템·시계 수집), `/textfile`(읽기 전용: 주기 잡이 쓴 지표 파일). 환경 변수는 없다.
-
-## export-root 의 출력 폴더
-`export-root <폴더>` 는 쓸 수 있는 아무 폴더나 받는다(예: 이미지 VOLUME 인 `/config`). 별도 입력 변수나 VOLUME 은 만들지 않았다(폴더는 부명령의 인자라 환경 스키마에 없다).
-
+`node`: `/host`(호스트 `/` 읽기 전용: 파일시스템·시계 수집), `/textfile`(읽기 전용: 주기 잡이 쓴 지표 파일). 두 경로는 계약 MonitoringEnv 의 `MONITORING_NODE_HOST_ROOT`·`MONITORING_NODE_TEXTFILE_DIR` 기본값이다.
 
 ## 이미지가 내는 잡 (라벨 io.openit.jobs, JobsDeclaration, 계약 3.4.16)
 정본은 `<서비스 폴더>/jobs-<서비스>.json` 이고 `scripts/build-image.sh` 가 계약 validator 로 검증해 라벨에 넣는다.

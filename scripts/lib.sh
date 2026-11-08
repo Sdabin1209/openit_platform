@@ -3,16 +3,9 @@
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOCKER=${DOCKER:-docker}
 eval "$(bash "$ROOT/scripts/docker-env.sh")"   # docker 환경 한 곳(사용자 전역 ~/.docker 에 기대지 않는다)
-PY="$ROOT/.venv/bin/python"; DEPLOY_PY=$PY   # kiosk-add-device.sh 가 쓰는 이름
+PY="$ROOT/.venv/bin/python"   # 시험·생성 스크립트가 쓰는 파이썬(리포의 가상환경)
 SECRETS_GID="${SECRETS_GID:-$(id -g)}"
 die() { echo "오류: $*" >&2; exit 1; }
-gateway_public_url() {
-  local first=${GATEWAY_HOSTS:-localhost:8443, 127.0.0.1:8443} p=${GATEWAY_PUBLIC_TLS_PORT:-8443}
-  first=${first%%,*}; first=${first// /}; first=${first%:*}
-  [[ "$first" =~ ^[A-Za-z0-9.-]+$ ]] || die "GATEWAY_HOSTS 첫 항목의 호스트 이름 규칙 위반: '$first'"
-  [[ "$p" =~ ^[0-9]{2,5}$ ]] || die "GATEWAY_PUBLIC_TLS_PORT 형식 위반: '$p'"
-  if [ "$p" = 443 ]; then echo "https://$first"; else echo "https://$first:$p"; fi
-}
 gateway_test_pki() {
   local d=$1; shift; local san="" n
   for n in "$@"; do san+="${san:+,}DNS:$n"; done

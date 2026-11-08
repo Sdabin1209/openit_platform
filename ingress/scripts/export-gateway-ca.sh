@@ -17,7 +17,7 @@ while [ $# -gt 0 ]; do case "$1" in
 [ -n "$OUT" ] || { usage >&2; echo "오류: 출력 파일 경로가 필요하다" >&2; exit 2; }
 case "$RETRIES" in ''|*[!0-9]*) echo "오류: --retries 는 0 이상의 정수다: '$RETRIES'" >&2; exit 2;; esac
 case "$PROJECT" in *[!A-Za-z0-9_.-]*|'') echo "오류: 프로젝트 이름 형식이 아니다: '$PROJECT'" >&2; exit 2;; esac
-DEPLOY_NO_DOCKER=1; source "$(dirname "$0")/../../scripts/lib.sh"; detect_docker
+source "$(dirname "$0")/../../scripts/lib.sh"   # DOCKER 와 docker 환경(DOCKER_CONFIG)은 lib.sh 가 정한다
 C="$PROJECT-gateway-1"; SRC="$C:/data/caddy/pki/authorities/local/root.crt"
 "$DOCKER" inspect "$C" >/dev/null 2>&1 || die "컨테이너 $C 가 없다. 프로젝트 이름을 확인하라(--project). 목록: $DOCKER ps --filter name=gateway"
 [ -d "$(dirname "$OUT")" ] || die "출력 폴더가 없다: $(dirname "$OUT")"

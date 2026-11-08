@@ -4,7 +4,7 @@
 공개 입구(사람·기기), 사람 인증(identity = Keycloak, identity-proxy = oauth2-proxy, identity-db), 영역 게이트웨이 이미지, 인증서 발급(step-ca), 감시, 백업 저장소. 이미지마다 `scripts/build-image.sh` 의 variant 하나: 없음 = area-gateway, `public-ingress`, `monitoring`, `backup-store`, `step-ca`, `identity`, `identity-proxy`, `identity-db`(PublishRequest.service 이름과 같다).
 
 ## 소비하는 계약
-boundary-contracts v3.4.11(`requirements.txt` 고정): Exposure, BuildImageRequest/Result, ImageLabels, BoundaryError, HealthStatus, DatabaseDeclaration, HumanAuthEndpoints와 이미지별 Env 스키마. 시험은 고정 태그 소스를 `scripts/fetch-boundary-src.sh` 로 받는다(이웃 작업 트리에 기대지 않는다).
+boundary-contracts(태그는 `requirements.txt` 한 곳에서 고정): Exposure, BuildImageRequest/Result, ImageLabels, BoundaryError, HealthStatus, DatabaseDeclaration, HumanAuthEndpoints와 이미지별 Env 스키마. 시험은 고정 태그 소스를 `scripts/fetch-boundary-src.sh` 로 받는다(이웃 작업 트리에 기대지 않는다).
 
 ## 이미지 입력: 계약 Env 스키마 (구조 규칙 6)
 이 영역 이미지가 받는 환경 변수의 이름·형식·기본값은 계약 스키마가 정본이다(여기에 복사하지 않는다): `AreaGatewayEnv`, `PublicIngressEnv`, `MonitoringEnv`, `BackupStoreEnv`, `StepCaEnv`, `IdentityEnv`, `IdentityProxyEnv`, `AreaDatabaseEnv`(+ 라벨 `io.openit.database` = `DatabaseDeclaration`). 스키마 파일은 빌드 때 이미지 안(`/etc/openit/schemas/`)에 들어가고, 기동 때 `envcheck`(`common/envcheck`, Go 정적 바이너리)가 환경을 그 스키마로 검증하고 기본값을 채운다. **위반(필수 누락, 형식 위반, 스키마에 없는 이 영역 접두어 이름)이면 종료 64**. 선언(Exposure) 위반·같은 공개 경로 중복·기기 토큰 형식 위반은 종료 65.

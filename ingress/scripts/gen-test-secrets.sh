@@ -4,7 +4,7 @@
 set -euo pipefail
 source "$(dirname "$0")/../../scripts/lib.sh"
 gw_rnd() { python3 -c 'import secrets;print(secrets.token_hex(24))'; }
-D=${1:?폴더}; mkdir -p "$D/tokens"; chmod 750 "$D" "$D/tokens"; chgrp "$SECRETS_GID" "$D" "$D/tokens" 2>/dev/null || true   # 왜: 컨테이너 사용자는 group_add 로 이 그룹을 얻어 비밀 파일을 읽는다(640). 폴더가 700 이면 읽지 못한다; : > "$D/.test-fixtures"
+D=${1:?폴더}; mkdir -p "$D/tokens"; chmod 750 "$D" "$D/tokens"; chgrp "$SECRETS_GID" "$D" "$D/tokens" 2>/dev/null || true   # 왜: 컨테이너 사용자는 group_add 로 이 그룹을 얻어 비밀 파일을 읽는다(640). 폴더가 700 이면 읽지 못한다
 for n in $(python3 -c 'import glob,json;print(" ".join(sorted({r["upstream_token"] for f in glob.glob("%s/ingress/tests/exposures/*.json" % __import__("sys").argv[1]) for r in json.load(open(f))["routes"] if r.get("upstream_token")})))' "$ROOT") $(grep -oh '{file\./run/secrets/[a-z0-9-]*}' "$ROOT"/ingress/config/Caddyfile "$ROOT"/ingress/config/*.caddy | sed 's/.*secrets\///; s/}//' | sort -u); do
   [ -s "$D/tokens/$n" ] || ( umask 077; gw_rnd > "$D/tokens/$n" ); secret_fix "$D/tokens/$n"
 done
