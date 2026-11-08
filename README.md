@@ -24,3 +24,4 @@
 - [0012 인증서 발급](docs/adr/0012-step-ca-entrypoint-subcommands.md)
 - [0004 사람 인증 이미지: 공식 이미지 위의 얇은 이미지](docs/adr/0004-identity-images-thin-over-official.md)
 - [0005 환경 검증: envcheck](docs/adr/0005-envcheck-contract-env-validation.md)
+- [0014 영역 게이트웨이 시간 제한](docs/adr/0014-area-gateway-exposure-timeouts.md)

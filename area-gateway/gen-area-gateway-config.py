@@ -4,7 +4,7 @@
 나가는 쪽: 영역 안 컴포넌트의 영역 밖 호출은 같은 네트워크 공간의 loopback(127.0.0.1:3128, 계약 R1.8·CommonEnv OPENIT_EGRESS_PROXY)에서 받아 HTTP CONNECT 터널(RFC 9110 9.3.6)로 나간다. Exposure.egress 에 선언한 상대의 `<이름>:443` 에만 터널을 열고 그 밖은 403 BoundaryError(PERMISSION_DENIED, details.reason=EGRESS_DENIED)로 거절한다(R1.8·R6.2).
 이미지 안에서는 entrypoint.sh 가 부른다(입력은 Dockerfile 머리말). 사용: gen-area-gateway-config.py --exposure <Exposure JSON 파일> --upstream <host:port> [--cert F --key F] [--ingress-port 443 --egress-port 3128] > envoy.yaml
 입력은 Exposure 계약 스키마로 검증한다(CONVENTIONS 3절). 비밀 값 없음."""
-import argparse, json, re, sys
+import argparse, copy, json, re, sys
 from boundary_contracts import validator
 from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 오류 본문의 스키마 버전은 계약 패키지의 현행 값이다(박지 않는다)
 
@@ -28,6 +28,23 @@ def allowed_authorities(egress):
 DEFAULT_MAX_BODY = 8 * 1024 * 1024   # 계약: Exposure.routes[].max_body_bytes 가 없으면 8MiB(RUNTIME R3.5, 3.4.7)
 
 
+def duration(ms):
+    return f"{ms // 1000}.{ms % 1000:03d}s"
+
+
+def route_action(exposure, declaration, cluster):
+    # CONVENTIONS 시간 상한 사슬: 서버 마감보다 긴 헤더 대기.
+    # 실측값이 아니라 계약의 시작값이다. Envoy timeout은 전체 응답이므로
+    # 0으로 두고 최초 시도의 헤더 대기는 per_try_timeout으로 분리한다.
+    default_header = {"release-gate": 180000, "question-authoring": 120000,
+                      "ops-feedback": 60000}.get(exposure["service"], 55000)
+    t = declaration.get("timeouts_ms", {})
+    dial = t.get("dial", 1000)
+    return {"cluster": f"{cluster}_dial{dial}", "timeout": "0s",
+            "idle_timeout": duration(t["read"]) if "read" in t else "0s",
+            "retry_policy": {"num_retries": 0, "per_try_timeout": duration(t.get("response_header", default_header))}}
+
+
 def glob_regex(path):
     """Exposure 경로 패턴 -> 정규식. 끝의 `/*` 는 그 아래 전부, 가운데 `*` 는 한 구간."""
     out = re.escape(path)
@@ -45,9 +62,9 @@ def ingress_routes(exposure, route_upstreams):
     """들어오는 쪽 경로 규칙: 경로·메서드별 본문 상한(Content-Length 로 앞에서 거절 413)과 상류(upstream_port: 같은 네트워크 공간 loopback 포트). 인증은 platform 공개 입구의 몫이다.
     한계: Content-Length 없는 청크 전송은 이 규칙으로 못 센다(미해결, ADR 0001)."""
     routes = []
-    def one(match, limit, cluster):
+    def one(match, limit, cluster, declaration):
         routes.append({"match": {**match, "headers": match.get("headers", []) + [{"name": "content-length", "range_match": {"start": limit + 1, "end": 2**62}}]}, **too_large(limit)})
-        routes.append({"match": match, "route": {"cluster": cluster, "timeout": "0s", "idle_timeout": "120s"}})
+        routes.append({"match": match, "route": route_action(exposure, declaration, cluster)})
     for r in exposure.get("routes", []):
         # auth is the platform public-entry policy. Peer requests bypass that entry
         # and must reach the receiving service's token validator (R1.1/R3.23).
@@ -55,7 +72,11 @@ def ingress_routes(exposure, route_upstreams):
         cluster = "port%d" % r["upstream_port"] if r.get("upstream_port") else "area"
         hdr = [{"name": ":method", "string_match": {"safe_regex": {"regex": "^(%s)$" % "|".join(r["methods"])}}}] if r.get("methods") else []
         for path in r["paths"]:
-            one({"safe_regex": {"regex": glob_regex(path)}, "headers": hdr}, limit, cluster)
+            # Placement changes the cluster, never the declaration's limits.
+            for i, prefix in sorted(enumerate(sorted(route_upstreams)), key=lambda pair: -len(pair[1])):
+                one({"safe_regex": {"regex": glob_regex(path)}, "headers": hdr + [
+                    {"name": ":path", "string_match": {"prefix": prefix}}]}, limit, "up%d" % i, r)
+            one({"safe_regex": {"regex": glob_regex(path)}, "headers": hdr}, limit, cluster, r)
     return routes
 
 
@@ -108,10 +129,10 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
                          "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                          "stat_prefix": "ingress", "stream_idle_timeout": "0s",
                          "route_config": {"name": "ingress", "virtual_hosts": [{"name": "area", "domains": ["*"], "routes": [
-                             *[{"match": {"prefix": pre}, "route": {"cluster": cl, "timeout": "0s", "idle_timeout": "120s"}} for pre, cl in sorted(ingress_prefixes, key=lambda x: -len(x[0]))],
                              *ingress_routes(exposure, route_upstreams),
+                             *[{"match": {"prefix": pre}, "route": route_action(exposure, {}, cl)} for pre, cl in sorted(ingress_prefixes, key=lambda x: -len(x[0]))],
                              {"match": {"prefix": "/", "headers": [{"name": "content-length", "range_match": {"start": DEFAULT_MAX_BODY + 1, "end": 2**62}}]}, **too_large(DEFAULT_MAX_BODY)},
-                             {"match": {"prefix": "/"}, "route": {"cluster": "area", "timeout": "0s", "idle_timeout": "120s"}}]}]},
+                             {"match": {"prefix": "/"}, "route": route_action(exposure, {}, "area")}]}]},
                          "http_filters": [{"name": "envoy.filters.http.router", "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]},
                 {"name": "egress", "address": {"socket_address": {"address": "127.0.0.1", "port_value": egress_port}},
                  "filter_chains": [{"filters": [{"name": "envoy.filters.network.http_connection_manager", "typed_config": {
@@ -129,6 +150,23 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
                 {"name": "dfp", "lb_policy": "CLUSTER_PROVIDED", "connect_timeout": "5s", "cluster_type": {"name": "envoy.clusters.dynamic_forward_proxy", "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig", "dns_cache_config": dfp_cache}}}]},
     }
+    # connect_timeout belongs to the cluster. Split clusters by declared dial
+    # value so two routes to one component can retain different budgets.
+    clusters = cfg["static_resources"]["clusters"]
+    templates = {c["name"]: c for c in clusters}
+    actions = cfg["static_resources"]["listeners"][0]["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"][0]["routes"]
+    created = set()
+    for route in actions:
+        if "route" not in route:
+            continue
+        name = route["route"]["cluster"]
+        if name not in created:
+            base, dial = name.rsplit("_dial", 1)
+            cluster = copy.deepcopy(templates[base])
+            cluster["name"] = name
+            cluster["connect_timeout"] = duration(int(dial))
+            clusters.append(cluster)
+            created.add(name)
     for listener in cfg["static_resources"]["listeners"]:
         for chain in listener["filter_chains"]:
             for entry in chain["filters"]:

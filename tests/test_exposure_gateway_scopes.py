@@ -17,7 +17,7 @@ def test_public_denial_does_not_remove_internal_service_route():
     routes = generator().ingress_routes(exposure, {})
     forwarded = [route for route in routes if 'route' in route]
     assert len(forwarded) == 2
-    assert all(route['route']['cluster'] == 'area' for route in forwarded)
+    assert all(route['route']['cluster'] == 'area_dial1000' for route in forwarded)
     assert len([route for route in routes if route.get('direct_response', {}).get('status') == 413]) == 2
 
 

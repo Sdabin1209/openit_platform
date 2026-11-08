@@ -79,7 +79,7 @@ def stack():
             code = ("import http.server,ssl\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s): s.send_response(200); s.end_headers(); s.wfile.write(b'from-" + nm + "')\n def log_message(s,*a): pass\n"
                     "h=http.server.ThreadingHTTPServer(('0.0.0.0',443),H); c=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain('/c.crt','/c.key'); h.socket=c.wrap_socket(h.socket,server_side=True); h.serve_forever()")
             run(f"{nm}-{tag}", "--network-alias", nm, "-v", f"{d}/{nm}.crt:/c.crt:ro", "-v", f"{d}/{nm}.key:/c.key:ro", util, "python", "-c", code)
-        app_code = "import http.server\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s):\n  if s.path=='/app-error':\n   s.send_response(503); s.send_header('Retry-After','17'); s.send_header('X-App','original'); s.end_headers(); s.wfile.write(b'app-original-body'); return\n  s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()"
+        app_code = "import http.server,time\nclass H(http.server.BaseHTTPRequestHandler):\n def do_GET(s):\n  if s.path.startswith('/delay-header/'):\n   time.sleep(float(s.path.rsplit('/',1)[1])); s.send_response(200); s.end_headers(); s.wfile.write(b'delayed'); return\n  if s.path.startswith('/stream/'):\n   s.send_response(200); s.send_header('Content-Length','4'); s.end_headers(); s.wfile.write(b'x'); s.wfile.flush()\n   for _ in range(3): time.sleep(float(s.path.rsplit('/',1)[1])); s.wfile.write(b'x'); s.wfile.flush()\n   return\n  if s.path=='/app-error':\n   s.send_response(503); s.send_header('Retry-After','17'); s.send_header('X-App','original'); s.end_headers(); s.wfile.write(b'app-original-body'); return\n  s.send_response(200); s.send_header('X-App','1'); s.end_headers(); s.wfile.write(b'from-app')\n def log_message(s,*a): pass\nhttp.server.ThreadingHTTPServer(('0.0.0.0',8080),H).serve_forever()"
         st = {"net": net, "d": d, "tag": tag, "run": run, "app_code": app_code}
         start_gw(st, "gw", exposure)
         yield st
@@ -241,3 +241,46 @@ def test_application_503_body_and_retry_header_are_preserved(stack):
     assert "x-app: original" in headers.lower()
     assert "x-envoy-upstream-service-time" not in headers.lower()
     assert "server:" not in headers.lower()
+
+
+def timed_request(stack, gateway, path, budget):
+    started = time.monotonic()
+    result = sh("docker", "run", "--rm", "--network", stack["net"], CURL,
+                "-sk", "--max-time", str(budget), "-i", f"https://{gateway}{path}",
+                check=False, timeout=budget + 15)
+    return result, time.monotonic() - started
+
+
+def test_declared_header_timeout_is_enforced_without_retry(stack):
+    exposure = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
+                "timeouts_ms": {"response_header": 200}}]}
+    start_gw(stack, "short-header", exposure)
+    result, elapsed = timed_request(stack, "short-header", "/delay-header/1", 8)
+    assert result.returncode == 0, result.stderr
+    headers, _, body = result.stdout.replace("\r\n", "\n").partition("\n\n")
+    assert " 504 " in headers, result.stdout
+    from boundary_contracts import validator
+    normalized = dict(line.split(": ", 1) for line in headers.lower().splitlines()[1:] if ": " in line)
+    validator("GatewayErrorResponse").validate({"status": 504, "headers": normalized, "body": json.loads(body)})
+    assert 0.15 < elapsed < 3, elapsed
+
+
+def test_stream_continues_past_header_budget_but_read_idle_is_enforced(stack):
+    exposure = {"service": "survey-service", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
+                "streaming": True, "timeouts_ms": {"response_header": 100, "read": 400}}]}
+    start_gw(stack, "stream-budget", exposure)
+    result, _ = timed_request(stack, "stream-budget", "/stream/0.15", 8)
+    assert result.returncode == 0 and result.stdout.endswith("xxxx"), result.stdout + result.stderr
+    result, _ = timed_request(stack, "stream-budget", "/stream/0.8", 8)
+    assert result.returncode != 0, result.stdout
+    assert " 200 " in result.stdout and not result.stdout.endswith("xxxx"), result.stdout
+
+
+def test_release_gate_default_wait_exceeds_old_120_second_cutoff(stack):
+    # Exact production-scale regression: a healthy slow response survives the
+    # old 120s cutoff and still completes before the contract's 170s server cap.
+    exposure = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"}}]}
+    start_gw(stack, "release-budget", exposure)
+    result, elapsed = timed_request(stack, "release-budget", "/delay-header/121", 190)
+    assert result.returncode == 0 and " 200 " in result.stdout and result.stdout.endswith("delayed"), result.stdout + result.stderr
+    assert 120 < elapsed < 170, elapsed
