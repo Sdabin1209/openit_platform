@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""기기 ID 정규식을 계약 DeviceAllowlist 의 device_id 패턴에서 꺼내 앵커 없는 식으로 낸다(Caddy header_regexp 와 device-pki.sh 가 쓴다).
-왜: 같은 패턴 사본을 Caddyfile·셸에 박으면 계약이 바뀔 때 어긋난다(D117). 끝 고정 `$(?![\\s\\S])` 는 ECMAScript 문법이라 RE2(Caddy)에 없다: 두 군데 모두 앞뒤를 직접 고정한다."""
-from boundary_contracts import load_schema
+"""기기 ID 정규식을 계약에서 꺼내 내는 진입점. 로직은 openit_platform/components/device_id_pattern.py."""
+import pathlib, sys
+# 왜 경로를 더하나: 이미지에서는 이 스크립트 옆(/usr/local/bin)에 openit_platform/ 이 있고, 리포에서는 리포 루트에 있다. 파일 이름·위치는 Dockerfile·entrypoint 가 부르므로 그대로 둔다.
+for _root in (pathlib.Path(__file__).resolve().parent, pathlib.Path(__file__).resolve().parent.parent):
+    if (_root / "openit_platform").is_dir():
+        sys.path.insert(0, str(_root))
+        break
+from openit_platform.components.device_id_pattern import device_id_regex
 
-PATTERN = load_schema("DeviceAllowlist")["properties"]["devices"]["items"]["properties"]["device_id"]["pattern"]
-SUFFIX = "$(?![\\s\\S])"
-if not (PATTERN.startswith("^") and PATTERN.endswith(SUFFIX)):
-    raise SystemExit("device_id 패턴의 모양이 바뀌었다(^…$(?![\\s\\S])): 이 변환을 다시 본다")
-print(PATTERN[1:-len(SUFFIX)])
+if __name__ == "__main__":
+    print(device_id_regex())

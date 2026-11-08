@@ -3,67 +3,29 @@
 
 TLS verifies the certificate. Caddy supplies its CN and decimal serial, replacing
 client headers. No credential or patient value appears in diagnostics or logs.
+판정 로직은 openit_platform/components/device_authorization.py, 조립은 openit_platform/wiring/device_auth.py. 이 파일은 소켓 서버(진입점)다.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import os
+import pathlib
 from pathlib import Path
 import socketserver
+import sys
 from http.server import BaseHTTPRequestHandler
 
-from boundary_contracts import BoundaryError, schema_validator, strict_json, validator
+# 왜 경로를 더하나: 이미지에서는 이 스크립트 옆(/usr/local/bin)에 openit_platform/ 이 있고, 리포에서는 리포 루트에 있다. 파일 이름·위치는 entrypoint 가 부르므로 그대로 둔다.
+for _root in (pathlib.Path(__file__).resolve().parent, pathlib.Path(__file__).resolve().parent.parent):
+    if (_root / "openit_platform").is_dir():
+        sys.path.insert(0, str(_root))
+        break
 
-_INPUT = json.loads((Path(__file__).parent / "schemas" / "DeviceAuthRequest.json").read_text())
-_INPUT_VALIDATOR = schema_validator(_INPUT)   # 영역 내부 스키마용 계약 검증기(5.0.1): 형식 검사·비유한 수 검사 포함
-_ALLOWLIST_VALIDATOR = validator("DeviceAllowlist")
-_DEVICE_ID_VALIDATOR = validator(_INPUT["properties"]["device_id"]["x-contract"])
+from openit_platform.wiring.device_auth import build, failure
 
-
-def load_allowlist(path: Path) -> dict[str, set[str]]:
-    document = strict_json.loads(path.read_text(encoding="utf-8"))   # 계약 JSON 공통 규칙(깊이 64·1 MiB·I-JSON): 허용 목록은 deploy 가 쓴 파일이다
-    _ALLOWLIST_VALIDATOR.validate(document)
-    result: dict[str, set[str]] = {}
-    for entry in document["devices"]:
-        device = entry["device_id"]
-        if device in result:
-            raise ValueError("duplicate device_id")
-        result[device] = set(entry["serials"])
-    return result
-
-
-def authorize(path: Path, device: str, decimal_serial: str) -> tuple[int, dict, bytes]:
-    try:
-        allowed = load_allowlist(path)
-    except Exception:
-        # Schema exceptions are deliberately indistinguishable from unreadable
-        # configuration. Never retain a previously allowed certificate on error.
-        return failure(503, "UNAVAILABLE", "device authorization unavailable")
-    try:
-        # Certificate serials are positive DER integers of at most 20 octets.
-        # 48 decimal digits suffice for that public contract; bound conversion.
-        _INPUT_VALIDATOR.validate({"device_id": device, "serial_decimal": decimal_serial})
-        _DEVICE_ID_VALIDATOR.validate(device)
-        serial = format(int(decimal_serial), "x")
-        _ALLOWLIST_VALIDATOR.validate({
-            "schema_version": 1,
-            "devices": [{"device_id": device, "serials": [serial]}],
-        })
-    except Exception:
-        return failure(403, "PERMISSION_DENIED", "device authentication failed")
-    if serial not in allowed.get(device, set()):
-        return failure(403, "PERMISSION_DENIED", "device authentication failed")
-    return 204, {"X-Openit-Device": device, "Cache-Control": "no-store"}, b""
-
-
-def failure(status: int, code: str, message: str) -> tuple[int, dict, bytes]:
-    record = BoundaryError(code, message).to_record()
-    body = json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode()
-    headers = {"Content-Type": "application/json", "Cache-Control": "no-store"}
-    if status == 503:
-        headers["Retry-After"] = "5"
-    return status, headers, body
+_AUTH = build(Path(__file__).parent / "schemas" / "DeviceAuthRequest.json")
+load_allowlist = _AUTH.load_allowlist
+authorize = _AUTH.authorize
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -82,17 +44,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/readyz":
-            try:
-                load_allowlist(self.server.allowlist)
-                record = {"status": "ready"}
-                validator("HealthStatus").validate(record)
-                result = 200, {"Content-Type": "application/json", "Cache-Control": "no-store"}, json.dumps(record).encode()
-            except Exception:
-                result = failure(503, "UNAVAILABLE", "device authorization unavailable")
+            result = _AUTH.ready(self.server.allowlist)
         elif self.path == "/verify":
             cn = self.headers.get_all("X-Openit-Device-Cn", [])
             serial = self.headers.get_all("X-Openit-Device-Serial", [])
-            result = authorize(self.server.allowlist, cn[0] if len(cn) == 1 else "", serial[0] if len(serial) == 1 else "")
+            result = _AUTH.authorize(self.server.allowlist, cn[0] if len(cn) == 1 else "", serial[0] if len(serial) == 1 else "")
         else:
             result = failure(404, "NOT_FOUND", "not found")
         status, headers, body = result

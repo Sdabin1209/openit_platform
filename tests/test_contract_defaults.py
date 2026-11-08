@@ -15,14 +15,14 @@ def load(path, name):
 def test_gateway_defaults_are_read_from_the_contract_not_copied():
     from boundary_contracts import gateway_defaults
     want = gateway_defaults()
-    area = load("area-gateway/gen-area-gateway-config.py", "area_cfg")
+    area = load("area-gateway/gen-area-gateway-config.py", "area_cfg")   # 진입 스크립트가 컴포넌트를 다시 내보낸다
     ingress = load("ingress/gen-ingress-routes.py", "ingress_routes")
     assert area.DEFAULT_MAX_BODY == ingress.DEFAULT_MAX_BODY == want["max_body_bytes"]
     assert area.HEADER_DEFAULT == want["timeouts_ms"]["response_header"]
     # 사본 부재: 생성기 소스에 계약 값 리터럴이 다시 박히지 않는다(값이 바뀌어도 시험이 따라온다)
     literals = [str(want["max_body_bytes"]), "8 * 1024 * 1024"] + [str(v) for v in want["timeouts_ms"]["response_header"]["by_service"].values()] \
         + [str(want["timeouts_ms"]["response_header"]["default"])]
-    for f in ("area-gateway/gen-area-gateway-config.py", "ingress/gen-ingress-routes.py"):
+    for f in ("openit_platform/components/area_gateway_config.py", "openit_platform/components/ingress_routes.py"):
         text = (ROOT / f).read_text(encoding="utf-8")
         assert not [x for x in literals if x in text], (f, [x for x in literals if x in text])
 

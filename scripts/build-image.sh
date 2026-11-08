@@ -66,7 +66,7 @@ CTXARGS=()
 if true; then
   [ -d "$BOUNDARY_SRC" ] || die "이 이미지는 요청의 dependency_sources.boundary(계약 소스 트리)가 필요하다"
   BA="v$(sed -n 's/^version = "\(.*\)"$/\1/p' "$BOUNDARY_SRC/pyproject.toml" | head -1)"; [ "$BA" = "$ACTUAL" ] || die "dependency_sources.boundary 의 실제 버전($BA)이 환경의 계약 패키지($ACTUAL)와 다르다"
-  CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC" --build-context "common=$PWD/common")
+  CTXARGS=(--build-context "boundary_contracts=$BOUNDARY_SRC" --build-context "common=$PWD/common" --build-context "platform_core=$PWD/openit_platform")
 fi
 # 노출 선언 라벨(io.openit.exposure, 계약 Exposure): 이 서비스가 받는 경로와 내보내는 호출. 정본은 $CTX/exposure-$SERVICE.json 한 곳이고 deploy 가 라벨에서 영역 게이트웨이·공개 입구 선언을 만든다(다른 영역 서비스와 같은 방식).
 EXPARGS=(); if [ -f "$CTX/exposure-$SERVICE.json" ]; then

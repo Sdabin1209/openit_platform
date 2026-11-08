@@ -31,6 +31,7 @@ COPY --from=common --chmod=755 backup-job.sh /usr/local/bin/platform-backup-job
 COPY --from=boundary_contracts boundary_contracts/schemas/ /etc/openit/schemas/
 COPY gen-ingress-routes.py device-auth.py gen-host-names.py gen-device-id-re.py /usr/local/bin/
 COPY schemas/ /usr/local/bin/schemas/
+COPY --from=platform_core . /usr/local/bin/openit_platform/
 COPY entrypoint.sh /usr/local/bin/ingress-entrypoint.sh
 # 인증 없는 요청의 기대 응답 점검(공개 입구 동작의 정본: 선언에서 기대 행을 만든다). 배포는 띄운 스택에 docker run --entrypoint selfcheck-unauth 로 실행만 한다
 COPY selfcheck-unauth.py /usr/local/bin/selfcheck-unauth.py
