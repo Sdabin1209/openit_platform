@@ -43,9 +43,16 @@ def route_action(exposure, declaration, cluster):
     header = t.get("response_header", default_header)
     if "read" in t and t["read"] < header:
         raise ValueError("Exposure timeouts_ms.read must be >= response_header (including its chain default)")
+    # The public entrance owns the declared response_header budget. This inner
+    # hop must finish first even when its upstream connection uses all of dial.
+    room = header - dial
+    margin = 1000 if room >= 2000 else 1
+    if room <= margin:
+        raise ValueError("Exposure response_header must exceed dial by at least 2ms")
+    inner_header = room - margin
     return {"cluster": f"{cluster}_dial{dial}", "timeout": "0s",
             "idle_timeout": duration(t["read"]) if "read" in t else "0s",
-            "retry_policy": {"num_retries": 0, "per_try_timeout": duration(header)}}
+            "retry_policy": {"num_retries": 0, "per_try_timeout": duration(inner_header)}}
 
 
 def glob_regex(path):

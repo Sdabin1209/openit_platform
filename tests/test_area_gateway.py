@@ -253,7 +253,7 @@ def timed_request(stack, gateway, path, budget):
 
 def test_declared_header_timeout_is_enforced_without_retry(stack):
     exposure = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
-                "timeouts_ms": {"response_header": 200}}]}
+                "timeouts_ms": {"dial": 10, "response_header": 200}}]}
     start_gw(stack, "short-header", exposure)
     result, elapsed = timed_request(stack, "short-header", "/delay-header/1", 8)
     assert result.returncode == 0, result.stderr
@@ -267,7 +267,7 @@ def test_declared_header_timeout_is_enforced_without_retry(stack):
 
 def test_stream_continues_past_header_budget_but_read_idle_is_enforced(stack):
     exposure = {"service": "survey-service", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
-                "streaming": True, "timeouts_ms": {"response_header": 100, "read": 400}}]}
+                "streaming": True, "timeouts_ms": {"dial": 10, "response_header": 100, "read": 400}}]}
     start_gw(stack, "stream-budget", exposure)
     result, _ = timed_request(stack, "stream-budget", "/stream/0.15", 8)
     assert result.returncode == 0 and result.stdout.endswith("xxxx"), result.stdout + result.stderr
@@ -288,7 +288,7 @@ def test_release_gate_default_wait_exceeds_old_120_second_cutoff(stack):
 
 def test_client_envoy_headers_cannot_override_the_declared_timeout(stack):
     exposure = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
-                "timeouts_ms": {"response_header": 200}}]}
+                "timeouts_ms": {"dial": 10, "response_header": 200}}]}
     start_gw(stack, "header-override", exposure)
     started = time.monotonic()
     result = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "-i", "--max-time", "8",
