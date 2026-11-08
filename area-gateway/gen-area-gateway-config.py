@@ -40,9 +40,12 @@ def route_action(exposure, declaration, cluster):
                       "ops-feedback": 60000}.get(exposure["service"], 55000)
     t = declaration.get("timeouts_ms", {})
     dial = t.get("dial", 1000)
+    header = t.get("response_header", default_header)
+    if "read" in t and t["read"] < header:
+        raise ValueError("Exposure timeouts_ms.read must be >= response_header (including its chain default)")
     return {"cluster": f"{cluster}_dial{dial}", "timeout": "0s",
             "idle_timeout": duration(t["read"]) if "read" in t else "0s",
-            "retry_policy": {"num_retries": 0, "per_try_timeout": duration(t.get("response_header", default_header))}}
+            "retry_policy": {"num_retries": 0, "per_try_timeout": duration(header)}}
 
 
 def glob_regex(path):
@@ -167,6 +170,17 @@ def build(exposure, upstream, cert, key, ingress_port, egress_port, route_upstre
             cluster["connect_timeout"] = duration(int(dial))
             clusters.append(cluster)
             created.add(name)
+    # Router consumes timeout overrides before route header removal. Strip them
+    # in an earlier standard filter, including direct peer calls without Caddy.
+    ingress_manager = cfg["static_resources"]["listeners"][0]["filter_chains"][0]["filters"][0]["typed_config"]
+    ingress_manager["http_filters"].insert(0, {
+        "name": "envoy.filters.http.header_mutation",
+        "typed_config": {"@type": "type.googleapis.com/envoy.extensions.filters.http.header_mutation.v3.HeaderMutation",
+                         "mutations": {"request_mutations": [{"remove": name} for name in [
+                             "x-envoy-upstream-rq-timeout-ms", "x-envoy-upstream-rq-per-try-timeout-ms",
+                             "x-envoy-expected-rq-timeout-ms", "x-envoy-upstream-stream-duration-ms",
+                             "x-envoy-upstream-rq-timeout-alt-response", "x-envoy-max-retries",
+                             "x-envoy-retry-on", "x-envoy-retry-grpc-on", "x-envoy-hedge-on-per-try-timeout"]]}}})
     for listener in cfg["static_resources"]["listeners"]:
         for chain in listener["filter_chains"]:
             for entry in chain["filters"]:

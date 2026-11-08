@@ -284,3 +284,35 @@ def test_release_gate_default_wait_exceeds_old_120_second_cutoff(stack):
     result, elapsed = timed_request(stack, "release-budget", "/delay-header/121", 190)
     assert result.returncode == 0 and " 200 " in result.stdout and result.stdout.endswith("delayed"), result.stdout + result.stderr
     assert 120 < elapsed < 170, elapsed
+
+
+def test_client_envoy_headers_cannot_override_the_declared_timeout(stack):
+    exposure = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
+                "timeouts_ms": {"response_header": 200}}]}
+    start_gw(stack, "header-override", exposure)
+    started = time.monotonic()
+    result = sh("docker", "run", "--rm", "--network", stack["net"], CURL, "-sk", "-i", "--max-time", "8",
+                "-H", "x-envoy-upstream-rq-timeout-ms: 999999",
+                "-H", "x-envoy-upstream-rq-per-try-timeout-ms: 999999",
+                "-H", "x-envoy-expected-rq-timeout-ms: 999999",
+                "-H", "x-envoy-max-retries: 9", "-H", "x-envoy-retry-on: 5xx",
+                "-H", "x-envoy-upstream-rq-timeout-alt-response: true",
+                "https://header-override/delay-header/1", check=False)
+    assert result.returncode == 0, result.stderr
+    assert " 504 " in result.stdout, result.stdout
+    assert time.monotonic() - started < 3
+    headers, _, body = result.stdout.replace("\r\n", "\n").partition("\n\n")
+    from boundary_contracts import validator
+    normalized = dict(line.split(": ", 1) for line in headers.lower().splitlines()[1:] if ": " in line)
+    validator("GatewayErrorResponse").validate({"status": 504, "headers": normalized, "body": json.loads(body)})
+
+
+def test_read_shorter_than_header_is_rejected_on_start_with_65(stack):
+    declaration = {"service": "release-gate", "routes": [{"paths": ["/*"], "auth": {"kind": "none"},
+                   "timeouts_ms": {"response_header": 200, "read": 100}}]}
+    path = stack["d"] / "invalid-time-chain.json"
+    path.write_text(json.dumps(declaration))
+    result = sh("docker", "run", "--rm", "--read-only", "--tmpfs", "/tmp",
+                "-v", f"{path}:/etc/openit/exposure.json:ro", "-v", f"{stack['d']}/certs:/certs:ro", IMAGE, check=False)
+    assert result.returncode == 65, result.stderr
+    assert "read must be >= response_header" in result.stderr

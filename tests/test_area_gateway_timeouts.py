@@ -44,3 +44,19 @@ def test_placement_preserves_declared_timeout_and_body_limit_before_fallback():
     assert placed['route']['retry_policy']['per_try_timeout'] == '180.000s'
     assert placed['match']['headers'][-1] == {'name': ':path', 'string_match': {'prefix': '/v1/job'}}
     assert routes[3]['route']['cluster'] == 'area_dial250'
+
+
+@pytest.mark.parametrize('timeouts', [{'read': 100}, {'read': 100, 'response_header': 200}])
+def test_invalid_read_header_order_is_rejected(timeouts):
+    with pytest.raises(ValueError, match='read must be >= response_header'):
+        generator().route_action({'service': 'release-gate'}, {'timeouts_ms': timeouts}, 'area')
+
+
+def test_override_headers_are_removed_before_router_consumes_them():
+    cfg, _ = generator().build({'service': 'release-gate', 'routes': []}, '127.0.0.1:8080', 'c', 'k', 443, 3128)
+    filters = cfg['static_resources']['listeners'][0]['filter_chains'][0]['filters'][0]['typed_config']['http_filters']
+    assert filters[0]['name'] == 'envoy.filters.http.header_mutation'
+    removed = {m['remove'] for m in filters[0]['typed_config']['mutations']['request_mutations']}
+    assert {'x-envoy-upstream-rq-timeout-ms', 'x-envoy-upstream-rq-per-try-timeout-ms',
+            'x-envoy-max-retries', 'x-envoy-upstream-rq-timeout-alt-response'} <= removed
+    assert filters[-1]['name'] == 'envoy.filters.http.router'

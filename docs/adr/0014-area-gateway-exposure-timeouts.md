@@ -15,6 +15,11 @@ Envoy 공식 문서의 RouteAction.timeout은 응답 전체, per_try_timeout은 
 
 근거: 계약 RUNTIME R3.3과 CONVENTIONS 시간 상한 사슬, [Envoy timeout 문서](https://www.envoyproxy.io/docs/envoy/latest/faq/configuration/timeouts), [RouteAction API](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto).
 
+### 후속 검토: 유휴 상한과 요청 헤더
+`read < response_header`(헤더 값을 생략하면 사슬 기본값과 비교)는 헤더 대기 중 계약 밖 408을 만들 수 있으므로 기동 시 종료 65로 거부한다. 값을 조용히 늘리지 않는다. 이 교차 필드 관계는 현 Exposure JSON Schema에 표현돼 있지 않으며 생성기의 의미 검증과 시험으로 강제한다.
+
+클라이언트의 Envoy 시간·재시도·대체 응답 제어 헤더는 ingress HCM의 표준 header_mutation 필터가 router보다 먼저 제거한다. 공개 입구를 거치지 않는 호출에도 적용한다. route request_headers_to_remove만 쓰면 router가 시간 헤더를 이미 읽은 뒤이므로 충분하지 않다([Envoy router.cc](https://github.com/envoyproxy/envoy/blob/v1.32.3/source/common/router/router.cc), finalTimeout 호출과 finalizeRequestHeaders 순서). 응답을 204로 바꾸는 timeout-alt-response도 제거한다.
+
 ## 검토한 대안
 - 120초를 180초로만 올리기: 다른 경로와 명시 선언을 계속 무시하므로 기각.
 - response_header를 route timeout에 넣기: 정상 SSE와 큰 응답을 전체 시간으로 끊으므로 기각.
