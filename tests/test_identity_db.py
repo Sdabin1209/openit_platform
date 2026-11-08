@@ -1,7 +1,7 @@
 """identity-db(D126, 3.4.10): 계약 AreaDatabaseEnv 로 뜨고, 서버 TLS 인증서가 바뀌면(step-ca renew) 재시작 없이 새 인증서를 내보낸다. 이미지는 지금 이 리포에서 빌드한다."""
 import json, pathlib, subprocess, time
 import pytest
-from ops_common import Stack, build, have_docker, make_ca, sh
+from ops_common import Stack, build, have_docker, make_ca, sh, minimal_env
 
 pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
 OSSL = "alpine/openssl"
@@ -11,7 +11,7 @@ def served_fp(st, host="identity-db"):
     r = sh("docker", "run", "--rm", "--network", st.net, OSSL, "s_client", "-starttls", "postgres", "-connect", f"{host}:5432", check=False, timeout=30)
     pem = r.stdout[r.stdout.find("-----BEGIN CERTIFICATE-----"):r.stdout.find("-----END CERTIFICATE-----") + 25]
     if "BEGIN" not in pem: return None
-    fp = subprocess.run(["openssl", "x509", "-noout", "-fingerprint", "-sha256"], input=pem, capture_output=True, text=True).stdout.strip()
+    fp = subprocess.run(["openssl", "x509", "-noout", "-fingerprint", "-sha256"], input=pem, capture_output=True, text=True, env=minimal_env()).stdout.strip()
     return fp or None
 
 

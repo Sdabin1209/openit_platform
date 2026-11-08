@@ -2,14 +2,14 @@
 정상 실행은 종료 코드 0, 변이(일부러 망가뜨린 설정)는 종료 코드 1 이어야 한다(단언이 실제로 잡는지). 이미지는 각 시험이 지금 이 리포에서 빌드한다."""
 import os, pathlib, subprocess
 import pytest
-from ops_common import have_docker
+from ops_common import have_docker, minimal_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
 
 
 def run(script, **env):
-    e = dict(os.environ, **env)
+    e = minimal_env("DOCKER", **env)   # R9.1: 시험이 넘길 이름은 이름으로 더한다
     return subprocess.run(["bash", str(ROOT / "ingress/tests" / script)], capture_output=True, text=True, env=e, timeout=1500)
 
 

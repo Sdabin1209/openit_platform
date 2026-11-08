@@ -1,12 +1,15 @@
 """운영 이미지(monitoring·backup-store·step-ca) 시험 공용. 빌드 입력은 이웃 작업 트리가 아니라 requirements.txt 의 고정 태그를 받은 것이다(fetch-boundary-src.sh).
 외부 이미지는 locks/images.lock 의 digest 로 쓴다(시험이 쓰는 이미지가 배포가 쓰는 것과 같다)."""
-import json, os, pathlib, shutil, subprocess, tempfile, uuid
+import json, os, pathlib, shutil, subprocess, sys, tempfile, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))   # 공용 최소 환경(scripts/minenv.py)
+from minenv import minimal_env
 PY = str(ROOT / ".venv/bin/python")
 
 
 def sh(*a, check=True, timeout=120, **kw):
+    kw.setdefault("env", minimal_env("DOCKER"))   # R9.1: 상속 환경을 통째로 넘기지 않는다
     return subprocess.run(a, capture_output=True, text=True, timeout=timeout, check=check, **kw)
 
 
@@ -28,7 +31,7 @@ def boundary_src():
     """고정 태그 계약 소스(한 번만 받는다)."""
     if "p" not in _SRC:
         d = pathlib.Path(tempfile.mkdtemp(prefix="ops-bc-")) / "src"
-        _SRC["p"] = sh("bash", str(ROOT / "scripts/fetch-boundary-src.sh"), str(d)).stdout.strip()
+        _SRC["p"] = sh("bash", str(ROOT / "scripts/fetch-boundary-src.sh"), str(d), env=minimal_env("GIT_CONFIG_GLOBAL", "SSH_AUTH_SOCK", "GIT_SSH_COMMAND")).stdout.strip()
     return _SRC["p"]
 
 
@@ -38,7 +41,7 @@ def build(variant, tag):
     d = pathlib.Path(tempfile.mkdtemp(prefix="ops-req-"))
     req = {"source_dir": str(ROOT), "revision": "abcdef1", "versions": {"boundary": ver}, "dependency_sources": {"boundary": boundary_src()}, "image_tag": tag, "variant": variant}
     (d / "r.json").write_text(json.dumps(req))
-    b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(d / "r.json")], text=True, capture_output=True)
+    b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(d / "r.json")], text=True, capture_output=True, env=minimal_env("DOCKER"))
     shutil.rmtree(d, ignore_errors=True)
     assert b.returncode == 0, "이미지를 만들지 못했다:\n" + b.stderr[-1500:]
     return json.loads(b.stdout.strip().splitlines()[-1])

@@ -1,4 +1,5 @@
 """계약이 정한 값(게이트웨이 기본값 gateway_defaults, 기기 ID 패턴)의 사본이 platform 코드에 없고 계약에서 읽는지 정적으로 본다(D117)."""
+from ops_common import minimal_env
 import importlib.util, pathlib, re
 from boundary_contracts import load_schema
 
@@ -29,7 +30,7 @@ def test_gateway_defaults_are_read_from_the_contract_not_copied():
 
 def test_device_id_pattern_is_read_from_the_contract_not_copied():
     import subprocess, sys
-    out = subprocess.run([sys.executable, str(ROOT / "ingress/gen-device-id-re.py")], capture_output=True, text=True, check=True).stdout.strip()
+    out = subprocess.run([sys.executable, str(ROOT / "ingress/gen-device-id-re.py")], capture_output=True, text=True, check=True, env=minimal_env()).stdout.strip()
     contract = load_schema("DeviceAllowlist")["properties"]["devices"]["items"]["properties"]["device_id"]["pattern"]
     assert contract == "^" + out + "$(?![\\s\\S])"
     # 사본이 없다: Caddyfile 과 기기 인증서 보조 스크립트에 패턴 문자열이 다시 박히지 않는다

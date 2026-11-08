@@ -1,6 +1,7 @@
 """Standalone Caddy assertions; every HTTPS connection verifies its CA and hostname."""
 import http.client
 import json
+import os
 from pathlib import Path
 import ssl
 import subprocess
@@ -14,7 +15,7 @@ policy = directory / "devices/allowlist.json"
 
 
 def serial(cert):
-    result = subprocess.run(["openssl", "x509", "-in", str(cert), "-noout", "-serial"], check=True, capture_output=True, text=True)
+    result = subprocess.run(["openssl", "x509", "-in", str(cert), "-noout", "-serial"], check=True, capture_output=True, text=True, env={"PATH": os.environ["PATH"]})
     return format(int(result.stdout.strip().split("=", 1)[1], 16), "x")
 
 

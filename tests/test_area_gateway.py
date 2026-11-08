@@ -3,7 +3,7 @@
  선언 밖은 403 + BoundaryError(PERMISSION_DENIED, details.reason=EGRESS_DENIED) (3) 변이: egress 에서 상대를 빼면 같은 호출이 403 이 된다."""
 import json, pathlib, subprocess, sys, tempfile, time, uuid
 import pytest
-from ops_common import lock   # 이미지 digest 의 출처: locks/images.lock
+from ops_common import lock, minimal_env   # lock: 이미지 digest 의 출처 locks/images.lock
 
 from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 계약 패키지의 현행 값과 같아야 한다(박지 않는다)
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -12,7 +12,7 @@ CURL = "curlimages/curl:8.10.1"
 
 
 def sh(*a, check=True, timeout=60):
-    return subprocess.run(a, capture_output=True, text=True, timeout=timeout, check=check)
+    return subprocess.run(a, capture_output=True, text=True, timeout=timeout, check=check, env=minimal_env("DOCKER"))
 
 
 def have_docker():
@@ -64,7 +64,7 @@ def stack():
         req.write_text(json.dumps(
 
             {"source_dir": str(ROOT), "revision": "abcdef1", "versions": {"boundary": "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()}, "dependency_sources": {"boundary": sh("bash", str(ROOT / "scripts/fetch-boundary-src.sh"), str(d / "boundary-src")).stdout.strip()}, "image_tag": IMAGE}))
-        b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], text=True, capture_output=True, check=False)
+        b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], text=True, capture_output=True, check=False, env=minimal_env("DOCKER"))
         assert b.returncode == 0, "이미지를 만들지 못했다:\n" + b.stderr[-1500:]
         # 인증서: 이 영역 게이트웨이(서비스 이름 survey-service)와 허용 상대(svc-x), 허용 밖 상대(svc-y)
         for cn in ("survey-service", "svc-x", "svc-y"):
@@ -142,7 +142,7 @@ def test_body_limit_413_boundary_error_per_route_and_default_8mib(stack):
     def post(path, n):
         # 본문은 표준 입력으로 보낸다(명령줄 길이 한도)
         return subprocess.run(["docker", "run", "--rm", "-i", "--network", stack["net"], CURL, "-sk", "--max-time", "20", "-X", "POST", "-H", "Content-Type: application/octet-stream", "--data-binary", "@-", "-w", "\n%{http_code}", f"https://gwlim{path}"],
-                              input="x" * n, capture_output=True, text=True, check=False, timeout=60).stdout
+                              input="x" * n, capture_output=True, text=True, check=False, timeout=60, env=minimal_env()).stdout
     body, _, code = post("/v1/small", 101).rpartition("\n")
     assert code == "413"
     err = json.loads(body)

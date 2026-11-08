@@ -1,4 +1,5 @@
 """영역 구조(DESIGN.md 6절): 컴포넌트는 서로 import 하지 않고, 영역 내부 스키마에는 통과·거부 예시가 있으며 결과가 맞고, types/ 가 스키마에서 다시 생성한 것과 같다."""
+from ops_common import minimal_env
 import json, pathlib, re, subprocess, sys
 import pytest
 from boundary_contracts import schema_validator
@@ -29,5 +30,5 @@ def test_schema_examples_pass_and_fail_as_named(schema):
 
 
 def test_types_are_regenerated_from_schemas():
-    r = subprocess.run([sys.executable, str(ROOT / "scripts/gen-types.py"), "--check"], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/gen-types.py"), "--check"], capture_output=True, text=True, env=minimal_env())
     assert r.returncode == 0, r.stderr

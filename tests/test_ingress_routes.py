@@ -1,4 +1,5 @@
 """공개 입구 경로 표 생성기(ingress/gen-ingress-routes.py) 규칙: denied 는 경로를 만들지 않고, 같은 공개 경로를 두 영역이 열면 거부한다(HTTP.md I1, 헤드 결정)."""
+from ops_common import minimal_env
 import json, pathlib, subprocess, sys, tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GEN = ROOT / "ingress/gen-ingress-routes.py"
@@ -8,7 +9,7 @@ def run(*exposures):
     d = pathlib.Path(tempfile.mkdtemp())
     for i, e in enumerate(exposures):
         (d / f"{i}.json").write_text(json.dumps(e))
-    return subprocess.run([sys.executable, "-I", str(GEN), str(d)], capture_output=True, text=True)
+    return subprocess.run([sys.executable, "-I", str(GEN), str(d)], capture_output=True, text=True, env=minimal_env())
 
 
 def ex(service, path, kind="none", **kw):
@@ -55,7 +56,7 @@ def run_with_builtin(*exposures):
         (d / f"{i}.json").write_text(json.dumps(e))
     for f in IDENTITY.glob("exposure-*.json"):
         (d / f.name).write_text(f.read_text(encoding="utf-8"))
-    return subprocess.run([sys.executable, "-I", str(GEN), str(d)], capture_output=True, text=True)
+    return subprocess.run([sys.executable, "-I", str(GEN), str(d)], capture_output=True, text=True, env=minimal_env())
 
 
 def test_identity_declarations_generate_the_human_auth_routes():

@@ -4,7 +4,9 @@ identity(Keycloak optimized)는 동일 영역 이미지이며 실제 기동·로
 import json, os, pathlib, subprocess, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
-for _l in subprocess.run(["bash", str(ROOT / "scripts/docker-env.sh")], capture_output=True, text=True).stdout.splitlines():   # docker 환경 한 곳
+sys.path.insert(0, str(ROOT / "scripts"))
+from minenv import minimal_env
+for _l in subprocess.run(["bash", str(ROOT / "scripts/docker-env.sh")], capture_output=True, text=True, env=minimal_env("DOCKER")).stdout.splitlines():   # docker 환경 한 곳
     if _l.startswith("export "):
         _k, _, _v = _l[len("export "):].partition("=")
         os.environ.setdefault(_k, _v.strip("'"))
@@ -65,7 +67,7 @@ def main():
         req = pathlib.Path(st.d / "req.json")
         ver = "v" + sh(str(ROOT / ".venv/bin/python"), "-c", "import importlib.metadata as m;print(m.version('boundary-contracts'))").stdout.strip()
         req.write_text(json.dumps({"source_dir": str(ROOT), "revision": "abcdef1", "versions": {"boundary": ver}, "dependency_sources": {"boundary": boundary_src()}, "image_tag": t}))
-        b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], capture_output=True, text=True); assert b.returncode == 0, b.stderr[-1500:]
+        b = subprocess.run(["bash", str(ROOT / "scripts/build-image.sh"), str(req)], capture_output=True, text=True, env=minimal_env("DOCKER")); assert b.returncode == 0, b.stderr[-1500:]
         image_checks(None, "area-gateway", t)
         make_ca(st.d, "svc", "svc", "localhost")
         (st.d / "certs").mkdir(); (st.d / "certs/tls.crt").write_text((st.d / "svc.crt").read_text()); (st.d / "certs/tls.key").write_text((st.d / "svc.key").read_text())
@@ -80,7 +82,7 @@ def main():
         t = tag("public-ingress"); imgs.append(t); image_checks("public-ingress", "public-ingress", t)
         sec = st.d / "sec"; pki = st.d / "ipki"; pki.mkdir()
         sh("bash", str(ROOT / "ingress/scripts/gen-test-secrets.sh"), str(sec))
-        dca = st.d / "dpki" / "ca.crt"; subprocess.run(["bash", str(ROOT / "ingress/scripts/device-pki.sh"), "init"], env=dict(os.environ, DEVICE_PKI_DIR=str(st.d / "dpki")), capture_output=True, check=True)   # 기기 CA(필수 입력)
+        dca = st.d / "dpki" / "ca.crt"; subprocess.run(["bash", str(ROOT / "ingress/scripts/device-pki.sh"), "init"], env=minimal_env(DEVICE_PKI_DIR=str(st.d / "dpki")), capture_output=True, check=True)   # 기기 CA(필수 입력)
         mounts = sh("bash", "-c", f"source {ROOT}/scripts/lib.sh && gateway_test_pki {pki} survey-service identity identity-proxy && gateway_test_mounts {pki} && echo $SECRETS_GID").stdout.split()
         gid = mounts[-1]; mounts = mounts[:-1]
         allowlist = st.d / "devices"
