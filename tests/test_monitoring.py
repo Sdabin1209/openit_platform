@@ -2,9 +2,9 @@
  정적: 이미지 안 설정 점검, promtool test rules, 변이(임계값을 바꾸면 test rules 가 거부). 동적: 가짜 서비스(TLS)로 실제 Prometheus·blackbox·json_exporter·alertmanager 를 띄워
  정상 수집 up=1, 10초 넘는 /metrics 와 500 은 up=0, 정적 화면 서버에는 /metrics 요청이 가지 않고 /readyz 만 탐침, 빈 200 /readyz 는 실패, judging_loop 를 숫자로 읽는다. Docker 필요."""
 import json, pathlib, time, urllib.parse, pytest
-from ops_common import ROOT, Stack, build, have_docker, lock, make_ca, sh
+from ops_common import ROOT, Stack, build, lock, make_ca, sh
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 IMAGE = "platform-x:monitoring"
 HARD = ["--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"]
 TESTS = ROOT / "monitoring/config/rules/openit_test.yml"

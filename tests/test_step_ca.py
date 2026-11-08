@@ -3,9 +3,9 @@
  (4) R4.6: 인증서가 만료된 뒤 컨테이너를 다시 시작하면(새 토큰) 사람 손 없이 새 인증서를 받는다 (5) 변이: 갱신 데몬을 빼면 (2) 의 판정이 실패한다.
 수명은 시험에서만 줄인다: 시험이 CA 상태 볼륨의 ca.json 에 minTLSCertDuration 을 낮춘다(제품 이미지에는 시험용 문이 없다; 발급 수명·갱신 시점은 제품 환경 변수 STEP_CERT_NOT_AFTER·STEP_RENEW_EXPIRES_IN). Docker 필요."""
 import json, time, pytest
-from ops_common import ROOT, Stack, build, have_docker, sh
+from ops_common import ROOT, Stack, build, sh
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 IMAGE = "platform-x:step-ca"
 HARD = ["--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--tmpfs", "/tmp:exec"]
 NAME = "survey-service"

@@ -1,9 +1,9 @@
 """identity-db(D126, 3.4.10): 계약 AreaDatabaseEnv 로 뜨고, 서버 TLS 인증서가 바뀌면(step-ca renew) 재시작 없이 새 인증서를 내보낸다. 이미지는 지금 이 리포에서 빌드한다."""
 import json, pathlib, subprocess, time
 import pytest
-from ops_common import Stack, build, have_docker, make_ca, sh, minimal_env
+from ops_common import Stack, build, make_ca, sh, minimal_env
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 OSSL = "alpine/openssl"
 
 

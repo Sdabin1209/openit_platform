@@ -2,10 +2,10 @@
 정상 실행은 종료 코드 0, 변이(일부러 망가뜨린 설정)는 종료 코드 1 이어야 한다(단언이 실제로 잡는지). 이미지는 각 시험이 지금 이 리포에서 빌드한다."""
 import os, pathlib, subprocess
 import pytest
-from ops_common import have_docker, minimal_env
+from ops_common import minimal_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 
 
 def run(script, **env):

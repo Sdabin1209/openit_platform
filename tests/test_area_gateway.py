@@ -15,11 +15,7 @@ def sh(*a, check=True, timeout=60):
     return subprocess.run(a, capture_output=True, text=True, timeout=timeout, check=check, env=minimal_env("DOCKER"))
 
 
-def have_docker():
-    return sh("docker", "version", check=False).returncode == 0
-
-
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 
 
 def start_gw(stack, name, exposure, alias=None, upstream="127.0.0.1:8080"):

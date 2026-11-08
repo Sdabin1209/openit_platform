@@ -1,9 +1,9 @@
 """platform 이미지의 환경 입력은 계약 Env 스키마(3.4.10)대로 받는다: 기동 때 envcheck 가 검증하고 위반이면 종료 64, 통과하면 기본값이 채워진다. 이미지는 지금 이 리포에서 빌드한다(check=True 의미: 빌드 실패는 오류).
 변이: 같은 이미지에 올바른 환경을 주면 통과한다(위반이 환경 때문임을 보인다)."""
 import pytest
-from ops_common import build, have_docker, sh, Stack
+from ops_common import build, sh, Stack
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 TMP = ["--read-only", "--tmpfs", "/tmp"]
 
 

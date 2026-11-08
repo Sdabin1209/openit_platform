@@ -11,5 +11,7 @@ if [ -z "${DOCKER_HOST:-}" ]; then
   if [ -n "$host" ] && [ "$host" != unix:///var/run/docker.sock ]; then printf "export DOCKER_HOST='%s'\n" "$host"; fi
 fi
 if [ -z "${DOCKER_CONFIG:-}" ]; then
+  # 왜: 빈 설정으로 바꾸면 사용자 설정 안의 이름 있는 context 는 없어진다. 위에서 그 엔드포인트를 DOCKER_HOST 로 풀어 줬으므로 DOCKER_CONTEXT 는 내려놓는다(안 그러면 'context not found').
+  [ -n "${DOCKER_CONTEXT:-}" ] && echo "unset DOCKER_CONTEXT"
   mkdir -p "$ROOT/build/docker-config" && printf '{}\n' > "$ROOT/build/docker-config/config.json" && printf "export DOCKER_CONFIG='%s'\n" "$ROOT/build/docker-config"
 fi

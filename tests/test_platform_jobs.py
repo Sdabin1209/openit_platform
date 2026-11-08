@@ -3,9 +3,9 @@
 import json
 import pytest
 from boundary_contracts import validator
-from ops_common import Stack, build, have_docker, make_ca, sh
+from ops_common import Stack, build, make_ca, sh
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 HARD = ["--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--tmpfs", "/tmp"]
 REPO_PW, AREA_PW = "repo-pass", "platform-pass"
 UID = {"public-ingress": 10001, "step-ca": 1000}   # 잡은 이미지의 비루트 사용자로 돈다(deploy 가 볼륨을 그 사용자 소유로 둔다)

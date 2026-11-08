@@ -3,9 +3,9 @@
 import json, pathlib
 import pytest
 from boundary_contracts import validator
-from ops_common import ROOT, build, have_docker, sh
+from ops_common import ROOT, build, sh
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 SERVICES = {"identity": "identity", "identity-proxy": "identity-proxy"}
 
 

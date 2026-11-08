@@ -31,3 +31,4 @@
 - [0016 기기 허용 목록 ADR 보완(0013 Nygard 항목)](docs/adr/0016-device-allowlist-nygard-supplement.md)
 - [0017 영역 게이트웨이 시간 시험은 정적으로(0014 검증 방법 대체)](docs/adr/0017-area-gateway-timeout-tests-static.md)
 - [0018 계약 5.0.0 반영: 사본은 계약에서 읽거나 대조한다](docs/adr/0018-contract-5-adoption.md)
+- [0019 Docker 필요 시험은 건너뛰지 않고 실패, 최소 환경은 Docker 연결 이름 전달](docs/adr/0019-docker-required-tests-fail-not-skip.md)

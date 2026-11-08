@@ -1,9 +1,9 @@
 """백업 저장소(RUNTIME R10.1, ADR 0011) 시험: 실제 restic 클라이언트(잠금된 restic 이미지)로 백업·복구 왕복, 다른 영역 자격으로 남의 경로 접근 거부,
 보존 정리(forget --prune)가 성공, 변이(--private-repos 를 빼면 남의 경로가 열린다 = 시험이 막는다는 증거). Docker 필요."""
 import pathlib, time, pytest
-from ops_common import ROOT, Stack, build, have_docker, lock, sh, make_ca
+from ops_common import ROOT, Stack, build, lock, sh, make_ca
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 IMAGE = "platform-x:backup-store"
 AREAS = {"survey-service": "pw-survey-test", "ops-feedback": "pw-ops-test"}   # 시험용 임의 값(비밀 아님)
 REPO_PW = "repo-pass-test"

@@ -1,9 +1,9 @@
 """이름 있는 볼륨의 첫 마운트 복사(Docker 표준): 빈 볼륨을 이미지의 마운트 경로에 붙이면 그 경로 디렉터리의 소유자·모드가 복사된다. deploy 는 권한을 조정하지 않는다(0777 로 여는 우회 없음).
 시험: 빈 이름 있는 볼륨을 붙여 이미지 사용자로 쓸 수 있고, 다른 uid·보조 그룹 10100 컨테이너가 읽는다. 변이: 이미지에 없는 경로에 붙이면(= 디렉터리를 이미지에서 뺀 것과 같다) 쓰기가 실패한다."""
 import pytest
-from ops_common import Stack, build, have_docker, sh
+from ops_common import Stack, build, sh
 
-pytestmark = pytest.mark.skipif(not have_docker(), reason="Docker 가 필요하다")
+pytestmark = pytest.mark.usefixtures("docker_required")   # Docker 없으면 실패(ADR 0019)
 
 
 @pytest.fixture(scope="module")

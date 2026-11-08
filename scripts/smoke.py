@@ -5,11 +5,8 @@ import json, os, pathlib, subprocess, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
-from minenv import minimal_env
-for _l in subprocess.run(["bash", str(ROOT / "scripts/docker-env.sh")], capture_output=True, text=True, env=minimal_env("DOCKER")).stdout.splitlines():   # docker 환경 한 곳
-    if _l.startswith("export "):
-        _k, _, _v = _l[len("export "):].partition("=")
-        os.environ.setdefault(_k, _v.strip("'"))
+from minenv import apply_docker_env, minimal_env
+apply_docker_env(ROOT)   # docker 환경 한 곳
 from ops_common import Stack, boundary_src, build, make_ca, sh
 
 CURL = "curlimages/curl:8.10.1"
