@@ -1,9 +1,9 @@
 #!/bin/sh
-# platform 인증서 발급 이미지의 진입점(ADR 0012). 역할(STEP_ROLE) 하나로 인증기관·루트 내보내기·토큰 발급·인증서 받기/갱신을 모두 한다: 배치(deploy)가 셸 한 줄을 들고 있지 않게(구조 규칙 1).
-#   serve(기본)      처음이면 `step ca init`(출력 없이: 공식 entrypoint 의 DOCKER_STEPCA_INIT_* 는 CA 비밀번호를 로그에 찍는다), 그 뒤 step-ca 를 /tmp 사본으로 실행(바이너리 파일 권한이 cap_drop ALL 에서 exec 를 막는다, 측정함)
-#   root             /home/step/certs/root_ca.crt(공개) 를 $PKI_OUT(기본 /out)/root_ca.crt 로 복사
-#   token <이름>...  서비스마다 일회용 토큰(OTT, 수명 5분 = step 기본)을 /tokens/<이름>.ott 로(프로비저너 비밀번호는 이 부명령만 읽는다)
-#   cert <이름>      /certs/tls.{crt,key}: 검증(만료 포함)에 실패하면 /tokens/<이름>.ott 로 발급(R4.6: 만료 뒤에도 사람 손 없이), 그 뒤 갱신 데몬(R3.11: 인증기관이 멈춰도 발급된 인증서는 그대로, 데몬은 재시도)
+# platform 인증서 발급 이미지의 진입점(ADR 0012, 역할 선택은 ADR 0015). 역할(STEP_ROLE) 하나로 인증기관·루트 내보내기·토큰 발급·인증서 받기/갱신을 모두 한다: 배치(deploy)가 셸 한 줄을 들고 있지 않게(구조 규칙 1).
+#   STEP_ROLE=serve  처음이면 `step ca init`(출력 없이: 공식 entrypoint 의 DOCKER_STEPCA_INIT_* 는 CA 비밀번호를 로그에 찍는다), 그 뒤 step-ca 를 /tmp 사본으로 실행(바이너리 파일 권한이 cap_drop ALL 에서 exec 를 막는다, 측정함)
+#   STEP_ROLE=root   /home/step/certs/root_ca.crt(공개) 를 $PKI_OUT(기본 /out)/root_ca.crt 로 복사
+#   STEP_ROLE=token  STEP_TOKEN_NAMES 의 이름마다 일회용 토큰(OTT, 수명 5분 = step 기본)을 /tokens/<이름>.ott 로(프로비저너 비밀번호는 이 역할만 읽는다)
+#   STEP_ROLE=cert   STEP_CERT_NAME 의 /certs/tls.{crt,key}: 검증(만료 포함)에 실패하면 /tokens/<이름>.ott 로 발급(R4.6: 만료 뒤에도 사람 손 없이), 그 뒤 갱신 데몬(R3.11: 인증기관이 멈춰도 발급된 인증서는 그대로, 데몬은 재시도)
 # 비밀번호는 파일(/run/secrets/step-ca-password)로만 받고 출력하지 않는다. 환경 변수: STEP_CA_PORT(9000) STEP_CA_DNS_NAMES(공백 구분 추가 이름) STEP_CA_URL(기본 https://step-ca:$PORT)
 #   STEP_CERT_NOT_AFTER(발급 수명, 비면 인증기관 기본 24h) STEP_RENEW_EXPIRES_IN(남은 수명이 이보다 짧아지면 갱신, 기본 12h = 수명 24h 의 절반)
 set -eu

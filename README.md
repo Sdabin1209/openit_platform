@@ -26,3 +26,6 @@
 - [0005 환경 검증: envcheck](docs/adr/0005-envcheck-contract-env-validation.md)
 - [0013 계약 4: 기기 허용 목록과 사용자 ID](docs/adr/0013-계약-4-기기-허용목록과-사용자-ID.md)
 - [0014 영역 게이트웨이 시간 제한](docs/adr/0014-area-gateway-exposure-timeouts.md)
+- [0015 step-ca 역할은 환경 변수로 고른다(0012 일부 대체)](docs/adr/0015-step-ca-role-by-env.md)
+- [0016 기기 허용 목록 ADR 보완(0013 Nygard 항목)](docs/adr/0016-device-allowlist-nygard-supplement.md)
+- [0017 영역 게이트웨이 시간 시험은 정적으로(0014 검증 방법 대체)](docs/adr/0017-area-gateway-timeout-tests-static.md)

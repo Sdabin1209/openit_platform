@@ -75,3 +75,22 @@ def test_no_representable_inner_budget_is_rejected(header, dial):
     with pytest.raises(ValueError, match='response_header must exceed dial'):
         generator().route_action({'service': 'release-gate'},
             {'timeouts_ms': {'dial': dial, 'response_header': header}}, 'area')
+
+
+def test_streaming_route_is_not_capped_by_header_budget_and_read_is_the_idle_limit():
+    # 옛 실시간 시험(스트림 0.15s 통과·0.8s 끊김)이 지키려던 설정: 헤더 대기는 per_try 로만, 전체 응답 timeout 은 0(무제한), read 는 idle_timeout.
+    exp = {'service': 'survey-service', 'routes': [{'paths': ['/*'], 'auth': {'kind': 'none'}, 'streaming': True,
+           'timeouts_ms': {'dial': 10, 'response_header': 100 + 11, 'read': 400}}]}
+    action = [r['route'] for r in generator().ingress_routes(exp, {}) if 'route' in r][0]
+    assert action['timeout'] == '0s'
+    assert action['idle_timeout'] == '0.400s'
+    assert action['retry_policy']['num_retries'] == 0
+
+
+def test_release_gate_default_header_wait_outlasts_old_120s_cutoff_and_the_170s_server_cap():
+    # 옛 실시간 시험(121초 응답 생존)이 지키려던 설정: 기본 헤더 대기가 120초보다 길고 서버 마감 170초보다 길며 숨은 유휴 상한이 없다.
+    exp = {'service': 'release-gate', 'routes': [{'paths': ['/*'], 'auth': {'kind': 'none'}}]}
+    action = [r['route'] for r in generator().ingress_routes(exp, {}) if 'route' in r][0]
+    per_try = float(action['retry_policy']['per_try_timeout'].rstrip('s'))
+    assert per_try > 170 and per_try > 120
+    assert action['idle_timeout'] == '0s' and action['timeout'] == '0s'
