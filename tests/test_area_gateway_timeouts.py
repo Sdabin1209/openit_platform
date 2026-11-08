@@ -77,20 +77,29 @@ def test_no_representable_inner_budget_is_rejected(header, dial):
             {'timeouts_ms': {'dial': dial, 'response_header': header}}, 'area')
 
 
-def test_streaming_route_is_not_capped_by_header_budget_and_read_is_the_idle_limit():
-    # 옛 실시간 시험(스트림 0.15s 통과·0.8s 끊김)이 지키려던 설정: 헤더 대기는 per_try 로만, 전체 응답 timeout 은 0(무제한), read 는 idle_timeout.
+def hcm(cfg):
+    return cfg['static_resources']['listeners'][0]['filter_chains'][0]['filters'][0]['typed_config']
+
+
+def test_route_with_read_has_no_total_timeout_header_wait_is_per_try_and_read_is_the_idle_limit():
+    # 옛 실시간 시험(스트림 0.15s 통과·0.8s 끊김)이 지키려던 설정. 생성기는 streaming 플래그를 쓰지 않고 read 유무로만 갈린다.
+    # 헤더 대기는 per_try_timeout 으로만, 전체 응답 timeout 은 0(무제한), read 는 idle_timeout.
+    # response_header 를 100+11 로 준 이유: 내부 헤더 대기 = response_header - dial(10) - 여유(차이가 2초 미만이면 1ms) 이므로 111 - 10 - 1 = 100ms 가 나온다.
     exp = {'service': 'survey-service', 'routes': [{'paths': ['/*'], 'auth': {'kind': 'none'}, 'streaming': True,
            'timeouts_ms': {'dial': 10, 'response_header': 100 + 11, 'read': 400}}]}
     action = [r['route'] for r in generator().ingress_routes(exp, {}) if 'route' in r][0]
     assert action['timeout'] == '0s'
     assert action['idle_timeout'] == '0.400s'
-    assert action['retry_policy']['num_retries'] == 0
+    assert action['retry_policy'] == {'num_retries': 0, 'per_try_timeout': '0.100s'}
 
 
 def test_release_gate_default_header_wait_outlasts_old_120s_cutoff_and_the_170s_server_cap():
-    # 옛 실시간 시험(121초 응답 생존)이 지키려던 설정: 기본 헤더 대기가 120초보다 길고 서버 마감 170초보다 길며 숨은 유휴 상한이 없다.
+    # 옛 실시간 시험(121초 응답 생존)이 지키려던 설정: 경로 단계(기본 헤더 대기 > 170초, timeout·idle 0)와
+    # HCM 단계(stream_idle_timeout 0s: 값이 없으면 Envoy 기본 5분, 120s 로 바꾸면 121초 응답이 끊긴다)를 모두 본다.
     exp = {'service': 'release-gate', 'routes': [{'paths': ['/*'], 'auth': {'kind': 'none'}}]}
     action = [r['route'] for r in generator().ingress_routes(exp, {}) if 'route' in r][0]
     per_try = float(action['retry_policy']['per_try_timeout'].rstrip('s'))
     assert per_try > 170 and per_try > 120
     assert action['idle_timeout'] == '0s' and action['timeout'] == '0s'
+    cfg, _ = generator().build(exp, '127.0.0.1:8080', 'c', 'k', 443, 3128)
+    assert hcm(cfg)['stream_idle_timeout'] == '0s'

@@ -7,11 +7,11 @@
 `tests/test_area_gateway.py` 의 시험 4개가 `docker run` 으로 curl 을 띄워 경과 시간을 재고 `0.15 < t < 3`, `t < 3`, `120 < t < 170` 을 단언했다. 이전 전체 실행에서 부하 때 2건이 실패했다. 잰 시간에 컨테이너 시작·제거 시간이 섞였고, Envoy·curl 의 타이머와 호스트 부하 자체가 시험 대상이 되어 있었다. curl 의 `time_total`/`time_starttransfer` 로 바꾸는 방안도 있었지만 호스트 부하·타이머 정밀도에 흔들리는 것은 같다.
 
 ## 결정
-- 시험이 지키려던 것은 "우리 설정이 계약의 시간 값을 Envoy 설정으로 옮겼는가"다. 이를 `tests/test_area_gateway_timeouts.py` 에서 생성기 출력(per_try_timeout, timeout, idle_timeout, retry 횟수)으로 정적으로 단언한다. 스트림(헤더 예산 밖 통과, read 는 idle_timeout)과 release-gate 기본 대기(120초·170초보다 김) 두 시나리오를 정적 시험으로 옮겼다.
+- 시험이 지키려던 것은 "우리 설정이 계약의 시간 값을 Envoy 설정으로 옮겼는가"다. 이를 `tests/test_area_gateway_timeouts.py` 에서 생성기 출력(per_try_timeout, timeout, idle_timeout, retry 횟수)으로 정적으로 단언한다. read 가 있는 경로(per_try·idle_timeout·전체 timeout 0)와 release-gate 기본 대기(120초·170초보다 길고 경로·HCM 단계의 유휴 상한 0s) 두 시나리오를 정적 시험으로 옮겼다. 변이(HCM stream_idle_timeout 을 120s 로, per_try 계산 변경)에서 실패함을 확인했다.
 - 실제 컨테이너 시험에서는 경과 시간 단언을 지우고 상태 코드(504)와 오류 본문의 계약 형태(`GatewayErrorResponse`)만 본다. 실제 121초 응답 시험과 스트림 지연 시험은 지웠다.
 
 ## 왜
-- 워크스페이스 원칙: 우리 코드만 시험한다. 라이브러리 타이머와 실제 경과 시간을 재는 시험은 두지 않는다(CLAUDE.md 사용자 메모리의 "우리 코드만 시험"). 흔들리는 시험은 그 시험이 왜 있는지부터 본다. 위의 정적 단언이 그 "왜"를 직접 지킨다.
+- 워크스페이스 원칙: 우리 코드만 시험한다. 라이브러리 타이머와 실제 경과 시간을 재는 시험은 두지 않는다(워크스페이스 CLAUDE.md 의 시험 원칙과 이 ADR 의 논리: 시험이 지킬 대상은 우리 생성기 출력이고, 타이머를 구현한 Envoy·curl 이 아니다). 흔들리는 시험은 그 시험이 왜 있는지부터 본다. 위의 정적 단언이 그 "왜"를 직접 지킨다.
 - 부수 효과로 전체 시험에서 약 2분(121초 대기)이 줄어든다(측정하지 않은 추정).
 
 ## 검토한 대안과 버리는 이유
