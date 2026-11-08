@@ -13,7 +13,9 @@ PENDING = PERM("account pending approval", ',"details":{"reason":"ACCOUNT_PENDIN
 NOTFOUND = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"NOT_FOUND","message":"not found","retryable":false}'
 TOO_LARGE = '{"pipeline_schema_version":"{$PIPELINE_SCHEMA_VERSION}","code":"INVALID_RECORD","message":"request body too large","retryable":false,"details":{"max_body_bytes":%d}}'
 OPERATIONAL = {"/healthz", "/readyz", "/metrics"}
-DEFAULT_MAX_BODY = 8 * 1024 * 1024   # 계약 Exposure.routes[].max_body_bytes 설명의 8MiB(8388608). 스키마에 default 칸이 없어 값을 갖고, tests/test_contract_defaults.py 가 계약 설명과 대조한다
+from boundary_contracts import gateway_defaults
+GW = gateway_defaults()   # 기본값 정본은 계약 패키지(5.0.1, D117)
+DEFAULT_MAX_BODY = GW["max_body_bytes"]
 
 
 def secs(ms):
@@ -47,7 +49,7 @@ def proxy(host, r, mode):
         out.append("\theader_up -Authorization")   # 클라이언트 자격은 서비스로 넘기지 않는다(서비스 자격은 선언만 사용)
     if r.get("streaming"):
         out.append("\tflush_interval -1")
-    out += ["\tlb_try_duration 0", "\ttransport http {", "\t\ttls_trusted_ca_certs " + CA, "\t\tdial_timeout %s" % secs(t.get("dial", 1000))]
+    out += ["\tlb_try_duration 0", "\ttransport http {", "\t\ttls_trusted_ca_certs " + CA, "\t\tdial_timeout %s" % secs(t.get("dial", GW["timeouts_ms"]["dial"]))]
     if t.get("response_header"):
         out.append("\t\tresponse_header_timeout %s" % secs(t["response_header"]))
     if t.get("read"):

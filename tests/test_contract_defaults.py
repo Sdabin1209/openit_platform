@@ -1,8 +1,6 @@
-"""계약에 산문으로만 있는 기본값(본문 상한 8MiB, 응답 헤더 사슬)의 platform 사본이 고정 태그의 계약과 같은지 정적으로 본다(D117).
-왜 시험인가: 스키마에 기계가 읽는 칸이 없어 사본을 지울 수 없다(변경 요청 docs/change-requests/2026-11-08-exposure-machine-readable-defaults.md)."""
+"""계약이 정한 값(게이트웨이 기본값 gateway_defaults, 기기 ID 패턴)의 사본이 platform 코드에 없고 계약에서 읽는지 정적으로 본다(D117)."""
 import importlib.util, pathlib, re
 from boundary_contracts import load_schema
-from ops_common import boundary_src
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -14,23 +12,19 @@ def load(path, name):
     return module
 
 
-def test_default_body_limit_copies_match_the_contract_description():
-    text = load_schema("Exposure")["$defs"]["route"]["properties"]["max_body_bytes"]["description"]
-    contract = int(re.search(r"8MiB\((\d+)", text).group(1))
-    assert contract == 8388608
-    assert load("area-gateway/gen-area-gateway-config.py", "area_cfg").DEFAULT_MAX_BODY == contract
-    assert load("ingress/gen-ingress-routes.py", "ingress_routes").DEFAULT_MAX_BODY == contract
-
-
-def test_header_chain_defaults_match_the_contract_conventions_table():
-    conventions = (pathlib.Path(boundary_src()) / "CONVENTIONS.md").read_text(encoding="utf-8")
-    rows = dict(re.findall(r"^\| (release-gate|question-authoring|ops-feedback) [^|]*\| \d+초\((\d+)\) \|", conventions, re.M))
-    assert set(rows) == {"release-gate", "question-authoring", "ops-feedback"}, rows
-    module = load("area-gateway/gen-area-gateway-config.py", "area_cfg2")
-    assert module.HEADER_CHAIN_MS == {k: int(v) * 1000 for k, v in rows.items()}
-    # 표에 행이 없는 환자·직원 경로: 연결 1초 + 응답 헤더 55초 = 56초
-    assert re.search(r"gateway 환자·직원 경로\(연결 1초 \+ 응답 헤더 55초\)", conventions)
-    assert module.DEFAULT_HEADER_MS == 55000
+def test_gateway_defaults_are_read_from_the_contract_not_copied():
+    from boundary_contracts import gateway_defaults
+    want = gateway_defaults()
+    area = load("area-gateway/gen-area-gateway-config.py", "area_cfg")
+    ingress = load("ingress/gen-ingress-routes.py", "ingress_routes")
+    assert area.DEFAULT_MAX_BODY == ingress.DEFAULT_MAX_BODY == want["max_body_bytes"]
+    assert area.HEADER_DEFAULT == want["timeouts_ms"]["response_header"]
+    # 사본 부재: 생성기 소스에 계약 값 리터럴이 다시 박히지 않는다(값이 바뀌어도 시험이 따라온다)
+    literals = [str(want["max_body_bytes"]), "8 * 1024 * 1024"] + [str(v) for v in want["timeouts_ms"]["response_header"]["by_service"].values()] \
+        + [str(want["timeouts_ms"]["response_header"]["default"])]
+    for f in ("area-gateway/gen-area-gateway-config.py", "ingress/gen-ingress-routes.py"):
+        text = (ROOT / f).read_text(encoding="utf-8")
+        assert not [x for x in literals if x in text], (f, [x for x in literals if x in text])
 
 
 def test_device_id_pattern_is_read_from_the_contract_not_copied():

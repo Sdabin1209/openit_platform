@@ -7,11 +7,11 @@
 계약 5.0.0 은 같은 뜻의 타입을 한 번만 정의하고(D117) 영역 코드의 사본을 지우라고 한다. platform 에는 계약 값의 사본이 있었다: Caddyfile·`device-pki.sh` 의 기기 ID 정규식, 본문 상한 8MiB 두 곳, 응답 헤더 사슬 기본값, 설정 검증에서 오류 메시지에 선언 값을 싣는 곳, 직접 만든 `Draft202012Validator`(형식 검사 없음, 점검 `check-format-enforcement.py` 가 `ingress/device-auth.py` 를 잡았다).
 
 ## 결정
-1. 계약 태그는 `requirements.txt` 한 곳에서 `v5.0.0` 으로 올린다.
+1. 계약 태그는 `requirements.txt` 한 곳에서 `v5.0.1` 로 올린다(5.0.0 으로 시작해 올렸다).
 2. 기기 ID 정규식은 `ingress/gen-device-id-re.py` 가 계약 `DeviceAllowlist` 의 `device_id` 패턴에서 앵커를 떼어 낸다. entrypoint 가 `DEVICE_ID_RE` 로 내보내 Caddyfile 이 `{$DEVICE_ID_RE}` 로 쓰고, `device-pki.sh` 는 같은 스크립트를 부른다. 사본이 없다는 것을 `tests/test_contract_defaults.py` 가 본다.
-3. 본문 상한 8MiB 와 응답 헤더 사슬 기본값은 계약이 산문으로만 정했고 기계가 읽는 칸이 없어 사본을 지울 수 없다. 사본은 한 모듈 상수로 모으고 `tests/test_contract_defaults.py` 가 고정 태그의 계약 설명·CONVENTIONS 표와 대조한다. 칸은 변경 요청(`docs/change-requests/2026-11-08-exposure-machine-readable-defaults.md`)으로 헤드에게 보냈다.
+3. 본문 상한 8MiB·연결 기본·응답 헤더 사슬 기본값은 계약 v5.0.1 `gateway_defaults()` 에서 읽는다. 5.0.0 에서는 산문뿐이라 사본과 대조 시험을 두었고, 변경 요청(`docs/change-requests/2026-11-08-exposure-machine-readable-defaults.md`)이 5.0.1 에 반영돼 사본을 지웠다. 시험은 사본 부재를 본다.
 4. Exposure·허용 목록 파일은 `strict_json.loads` 와 `validate` 를 지나고, 오류에는 스키마 위치와 키워드만 싣는다(INTERFACES I7).
-5. 영역 내부 스키마(`DeviceAuthRequest`)의 검증기는 `ContractValidator` 로 감싸고 `format_checker` 를 붙인다. 계약 5.0.1 의 `schema_validator` 가 나오면 바꾼다.
+5. 영역 내부 스키마(`DeviceAuthRequest`)의 검증기는 계약 `schema_validator` 로 만든다(직접 만든 Draft202012Validator 와 감싸개는 없앴다).
 6. 계약이 정한 조건(GATEWAY_HOSTS 형식)을 코드에서 지우고, 계약이 정하지 않은 조건은 `ingress/schemas/README.md` 표에 이유와 함께 둔다.
 
 ## 왜
@@ -24,4 +24,4 @@
 - 사슬·본문 기본값을 `../boundary-contracts` 파일에서 직접 읽기: 이웃 리포 파일에 기대는 것이고 패키지에 없다. 버린다.
 
 ## 결과 / 되돌리는 조건
-얻는 것: 계약 패턴이 바뀌면 정규식이 자동으로 따라온다. 감수하는 것: 본문 상한·사슬은 계약이 칸을 주기 전까지 사본이 남고 대조 시험이 지킨다. 계약이 `default`·사슬 데이터를 패키지로 내면 사본을 지우고 이 ADR 을 대체한다. 5.0.1 알림 뒤 5번을 `schema_validator` 로 바꾼다.
+얻는 것: 계약 패턴과 기본값이 바뀌면 생성기가 자동으로 따라온다. 감수하는 것: 계약 패키지의 데이터 형태(gateway_defaults)에 생성기가 기댄다. 그 형태가 바뀌면 새 ADR.

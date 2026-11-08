@@ -5,7 +5,7 @@
 이미지 안에서는 entrypoint.sh 가 부른다(입력은 Dockerfile 머리말). 사용: gen-area-gateway-config.py --exposure <Exposure JSON 파일> --upstream <host:port> [--cert F --key F] [--ingress-port 443 --egress-port 3128] > envoy.yaml
 입력은 Exposure 계약 스키마로 검증한다(CONVENTIONS 3절). 비밀 값 없음."""
 import argparse, copy, json, re, sys
-from boundary_contracts import BoundaryError, strict_json, validate, validator
+from boundary_contracts import BoundaryError, gateway_defaults, strict_json, validate, validator
 from boundary_contracts import PIPELINE_SCHEMA_VERSION as PSV   # 오류 본문의 스키마 버전은 계약 패키지의 현행 값이다(박지 않는다)
 
 DENIED = {"pipeline_schema_version": PSV, "code": "PERMISSION_DENIED", "message": "EGRESS_DENIED", "retryable": False, "details": {"reason": "EGRESS_DENIED"}}
@@ -25,11 +25,10 @@ def allowed_authorities(egress):
     return sorted(set(exact)), public
 
 
-# 왜 여기에 값이 있나: 이 두 기본값은 계약 CONVENTIONS '시간 상한 사슬' 표(산문)에만 있고 스키마에 기계가 읽는 칸이 없다(계약 5.0.0).
-# 사본이 어긋나지 않게 tests/test_contract_defaults.py 가 고정 태그의 CONVENTIONS 표와 대조한다. 칸 요청: docs/change-requests/2026-11-08-exposure-machine-readable-defaults.md
-HEADER_CHAIN_MS = {"release-gate": 180000, "question-authoring": 120000, "ops-feedback": 60000}   # 서비스별 응답 헤더 대기 기본(ms)
-DEFAULT_HEADER_MS = 55000   # 표에 없는 환자·직원 경로
-DEFAULT_MAX_BODY = 8 * 1024 * 1024   # 계약: Exposure.routes[].max_body_bytes 가 없으면 8MiB(RUNTIME R3.5, 3.4.7)
+# 기본값은 계약 패키지가 정본이다(5.0.1 gateway_defaults, D117): 코드에 값 사본을 두지 않는다
+GW = gateway_defaults()
+HEADER_DEFAULT = GW["timeouts_ms"]["response_header"]
+DEFAULT_MAX_BODY = GW["max_body_bytes"]
 
 
 def duration(ms):
@@ -40,9 +39,9 @@ def route_action(exposure, declaration, cluster):
     # CONVENTIONS 시간 상한 사슬: 서버 마감보다 긴 헤더 대기.
     # 실측값이 아니라 계약의 시작값이다. Envoy timeout은 전체 응답이므로
     # 0으로 두고 최초 시도의 헤더 대기는 per_try_timeout으로 분리한다.
-    default_header = HEADER_CHAIN_MS.get(exposure["service"], DEFAULT_HEADER_MS)
+    default_header = HEADER_DEFAULT["by_service"].get(exposure["service"], HEADER_DEFAULT["default"])
     t = declaration.get("timeouts_ms", {})
-    dial = t.get("dial", 1000)
+    dial = t.get("dial", GW["timeouts_ms"]["dial"])
     header = t.get("response_header", default_header)
     if "read" in t and t["read"] < header:
         raise ValueError("Exposure timeouts_ms.read must be >= response_header (including its chain default)")
